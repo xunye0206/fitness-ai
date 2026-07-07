@@ -1,0 +1,23 @@
+# 密钥与敏感配置（绝不入库）
+.env
+*.env
+
+# 数据库文件（表结构由代码生成，不入库）
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+
+# 工具状态 / 项目记忆（不入库）
+.workbuddy/
