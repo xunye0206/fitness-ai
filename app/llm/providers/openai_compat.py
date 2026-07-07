@@ -155,30 +155,43 @@ class OpenAICompatibleProvider(LLMProvider):
                 "tool_choice": tool_choice,
             }
             stream = await client.chat.completions.create(**payload)
-            acc: dict[str, dict] = {}  # id -> {"name":..., "args":...}
+            acc: dict[int, dict] = {}  # index -> {"name":..., "args":..., "id":...}
             async for chunk in stream:
                 if not chunk.choices:
                     continue
                 delta = chunk.choices[0].delta
                 if delta and getattr(delta, "content", None):
                     yield {"type": "delta", "text": delta.content}
-                for tc in getattr(delta, "tool_calls", []) or []:
-                    tid = tc.id or f"_t{len(acc)}"
-                    if tid not in acc:
-                        acc[tid] = {
-                            "name": (tc.function.name if tc.function else None),
-                            "args": "",
-                        }
-                    if tc.function and tc.function.arguments:
-                        acc[tid]["args"] += tc.function.arguments
-            if acc:
-                calls: list[ToolCall] = []
-                for tid, info in acc.items():
-                    try:
-                        args = json.loads(info["args"] or "{}")
-                    except Exception:
-                        args = {}
-                    calls.append(ToolCall(id=tid, name=info["name"], arguments=args))
+                for idx, tc in enumerate(getattr(delta, "tool_calls") or []):
+                    # 跳过幽灵条目（DeepSeek 流式常发无 ID 无 function 的空占位）
+                    if not tc.id and not tc.function:
+                        continue
+                    if idx not in acc:
+                        acc[idx] = {"name": None, "args": "", "id": tc.id or ""}
+                    # 保留第一个出现的真实 id（首片带 id，后续片 id=None 不覆盖）
+                    if tc.id and not acc[idx].get("id"):
+                        acc[idx]["id"] = tc.id
+                    # 有新数据时更新（处理增量片段中 name/args 分批到达的情况）
+                    if tc.function:
+                        if tc.function.name:
+                            acc[idx]["name"] = tc.function.name
+                        if tc.function.arguments:
+                            acc[idx]["args"] += tc.function.arguments
+            # 只保留有有效名称的工具调用（过滤掉 name 为空的幽灵条目）
+            calls: list[ToolCall] = []
+            for idx, info in acc.items():
+                if not info.get("name"):
+                    continue
+                try:
+                    args = json.loads(info["args"] or "{}")
+                except Exception:
+                    args = {}
+                calls.append(ToolCall(
+                    id=info.get("id") or f"call_{idx}",
+                    name=info["name"],
+                    arguments=args,
+                ))
+            if calls:
                 yield {"type": "tools", "calls": calls}
         except Exception as exc:
             import logging
