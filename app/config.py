@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     vision_provider: str = "fake"      # 识图
     embedding_provider: str = ""       # 空 = 不启用向量
 
+    # 按用途的模型覆盖（可选；不填则用对应 provider 的默认模型）
+    reasoning_model: str = ""
+    vision_model: str = ""
+    embedding_model: str = ""
+
     # 各供应商密钥与端点（仅在 provider != fake 时使用）
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com/v1"
