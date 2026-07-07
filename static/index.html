@@ -262,6 +262,15 @@ async function doLogin() {
 
 function apiHeaders(){ return {'Authorization':'Bearer '+token}; }
 
+// 统一处理 401（token 过期）
+function checkAuth(r){
+  if(r.status===401){
+    token=''; localStorage.removeItem('token');
+    showResult('loginResult','\u26A0 登录已过期，请重新点「登录 / 注册」按钮','error');
+  }
+  return r;
+}
+
 // 图片预览
 function previewFile(input){
   const f = input.files[0]; if(!f) return;
@@ -281,7 +290,7 @@ async function doRecognize(){
   const fd=new FormData(); fd.append('image',f);
   showResult('recognizeResult','正在识别中...','info');
   try{
-    const r=await fetch(API+'/diet/recognize',{method:'POST',headers:apiHeaders(),body:fd});
+    const r=checkAuth(await fetch(API+'/diet/recognize',{method:'POST',headers:apiHeaders(),body:fd}));
     const d=await r.json();
     if(!r.ok){ showResult('recognizeResult','错误 ('+r.status+'): '+JSON.stringify(d),'error'); btn.disabled=false; return; }
     const e=d.estimate;
@@ -318,7 +327,7 @@ async function doAddTraining(){
   if(dt) body.date=dt;
   showResult('trainingResult','','info');
   try{
-    const r=await fetch(API+'/training',{method:'POST',headers:{...apiHeaders(),'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const r=checkAuth(await fetch(API+'/training',{method:'POST',headers:{...apiHeaders(),'Content-Type':'application/json'},body:JSON.stringify(body)}));
     const d=await r.json();
     showResult('trainingResult',(r.ok?'\u2714 ':'\u2718 ')+JSON.stringify(d,null,2),r.ok?'success':'error');
   }catch(e){ showResult('trainingResult','失败：'+e.message,'error'); }
@@ -329,7 +338,7 @@ async function doGenerateReport(){
   const days=document.getElementById('reportDays').value;
   showResult('reportResult','正在生成日报（召回近'+days+'天数据）...','info');
   try{
-    const r=await fetch(API+'/report/generate',{method:'POST',headers:{...apiHeaders(),'Content-Type':'application/json'},body:JSON.stringify({days:+days})});
+    const r=checkAuth(await fetch(API+'/report/generate',{method:'POST',headers:{...apiHeaders(),'Content-Type':'application/json'},body:JSON.stringify({days:+days})}));
     const d=await r.json();
     if(r.ok){
       let h='<b>\u2714 报告已生成（id='+d.id+', 模型：'+d.model+'）</b>\n\n';
@@ -344,7 +353,7 @@ async function doTriggerPush(){
   const et=document.getElementById('pushType').value;
   showResult('pushResult','','info');
   try{
-    const r=await fetch(API+'/push/trigger',{method:'POST',headers:{...apiHeaders(),'Content-Type':'application/json'},body:JSON.stringify({event_type:et})});
+    const r=checkAuth(await fetch(API+'/push/trigger',{method:'POST',headers:{...apiHeaders(),'Content-Type':'application/json'},body:JSON.stringify({event_type:et})}));
     const d=await r.json();
     if(r.ok){
       let s='<b>\u2714 推送已触发</b>\n\n';
@@ -360,7 +369,7 @@ async function doTriggerPush(){
 async function doEventScan(){
   showResult('scanResult','正在巡检...','info');
   try{
-    const r=await fetch(API+'/push/scan',{method:'POST',headers:{...apiHeaders(),'Content-Type':'application/json'},body:'{}'});
+    const r=checkAuth(await fetch(API+'/push/scan',{method:'POST',headers:{...apiHeaders(),'Content-Type':'application/json'},body:'{}'}));
     const d=await r.json();
     if(r.ok){
       showResult('scanResult','<b>巡检完成</b>\n扫描 '+d.scanned+' 条记录，触发 '+d.fired+' 条推送','success');
@@ -378,7 +387,7 @@ async function _loadList(url,elId,fmtFn){
   const el=document.getElementById(elId);
   el.innerHTML='加载中...';
   try{
-    const r=await fetch(url,{headers:apiHeaders()});
+    const r=checkAuth(await fetch(url,{headers:apiHeaders()}));
     const arr=await r.json();
     if(!Array.isArray(arr)||arr.length===0){ el.innerHTML='<p style="color:var(--text-secondary)">暂无记录</p>'; return; }
     el.innerHTML='<table class="list-table"><thead><tr>'+fmtFn(null,true)+'</tr></thead><tbody>'+arr.map(fmtFn).join('')+'</tbody></table>';
