@@ -5,6 +5,7 @@
 - recursion_limit 充当 max_steps，防止状态机死循环。
 """
 import json
+import logging
 import re
 
 from langgraph.graph import END, START, StateGraph
@@ -14,6 +15,8 @@ from app.agent.schemas import FoodEstimate
 from app.agent.state import DietRecognitionState
 from app.llm.base import LLMResult
 from app.llm.router import see
+
+logger = logging.getLogger("fitness_agent.vision")
 
 VISION_PROMPT = (
     "请识别这张食物图片，估算其热量(kcal)与宏量营养素"
@@ -69,8 +72,22 @@ def parse_estimate(result: LLMResult) -> FoodEstimate | None:
 
 
 async def vision_node(state: DietRecognitionState) -> dict:
-    result = await see(state["image_b64"], VISION_PROMPT)
-    return {"recognition": parse_estimate(result), "log": [f"vision ok={result.ok}"]}
+    b64_len = len(state["image_b64"] or "")
+    logger.info("vision_node 开始，base64 长度=%d", b64_len)
+    try:
+        result = await see(state["image_b64"], VISION_PROMPT)
+    except Exception as exc:
+        logger.error("vision API 调用异常: type=%s, msg=%s", type(exc).__name__, exc, exc_info=True)
+        return {"recognition": None, "log": [f"vision 异常: {type(exc).__name__}: {exc}"]}
+    if not result.ok:
+        logger.warning("vision API 返回 ok=False, error=%s", result.error)
+        return {"recognition": None, "log": [f"vision 失败: {result.error}"]}
+    est = parse_estimate(result)
+    if est is None:
+        logger.warning("vision 返回文本但无法解析为 FoodEstimate, text=%s", (result.text or "")[:200])
+        return {"recognition": None, "log": [f"vision 解析失败, 原始文本: {(result.text or '')[:200]}"]}
+    logger.info("vision 识别成功: name=%s, cal=%.0f", est.name, est.calories)
+    return {"recognition": est, "log": [f"vision ok={result.ok}"]}
 
 
 async def guardrail_node(state: DietRecognitionState) -> dict:

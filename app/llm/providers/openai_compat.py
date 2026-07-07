@@ -6,9 +6,12 @@
 """
 import base64
 import json
+import logging
 from typing import Any, Optional
 
 from app.llm.base import Capability, LLMProvider, LLMResult, Message, ToolCall
+
+logger = logging.getLogger("fitness_agent.llm")
 
 
 def _detect_mime(b64: str) -> str:
@@ -204,6 +207,7 @@ def _msg_to_dict(m: Message) -> dict:
         if Capability.VISION not in self.capabilities:
             return LLMResult(text="", ok=False, error="provider 不支持 VISION")
         mime = _detect_mime(image_base64)
+        logger.info("see() 调用视觉API: model=%s, mime=%s, b64_len=%d", self.vision_model, mime, len(image_base64))
         try:
             client = self._client()
             resp = await client.chat.completions.create(
@@ -223,9 +227,12 @@ def _msg_to_dict(m: Message) -> dict:
                     }
                 ],
             )
-            return LLMResult(text=resp.choices[0].message.content or "", ok=True)
+            text = resp.choices[0].message.content or ""
+            logger.info("see() 视觉API返回成功, text_len=%d", len(text))
+            return LLMResult(text=text, ok=True)
         except Exception as exc:
-            return LLMResult(text="", ok=False, error=str(exc))
+            logger.error("see() 视觉API调用失败: type=%s, msg=%s", type(exc).__name__, exc, exc_info=True)
+            return LLMResult(text="", ok=False, error=f"{type(exc).__name__}: {exc}")
 
     async def embed(self, texts: list[str]) -> LLMResult:
         if Capability.EMBEDDING not in self.capabilities:

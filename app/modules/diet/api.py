@@ -1,4 +1,5 @@
 """diet 模块路由（api 层）。只做参数校验、鉴权、调 service、返回。"""
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -9,6 +10,8 @@ from app.modules.auth.api import get_current_user
 from app.modules.auth.domain import User
 from app.modules.diet.schemas import CorrectRequest, DietEntryOut, RecognizeResponse
 from app.modules.diet.service import correct_diet, list_diet, recognize_diet
+
+logger = logging.getLogger("fitness_agent.diet")
 
 router = APIRouter(prefix="/diet", tags=["diet"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -24,7 +27,9 @@ async def recognize(
     try:
         return await recognize_diet(session, current.id, image)
     except Exception as exc:  # noqa: BLE001 - 统一兜底，避免内部细节泄漏
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"识别失败: {exc}")
+        logger.error("识别失败: type=%s, msg=%s", type(exc).__name__, exc, exc_info=True)
+        detail = f"识别失败: {exc}" if str(exc) else f"识别失败: [{type(exc).__name__}]"
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail)
 
 
 @router.post("/{entry_id}/correct", response_model=DietEntryOut)
