@@ -203,6 +203,15 @@ button.ghost:hover { background:#F3F4F6; }
 .result-box.success { background:#ECFDF5; color:#065F46; border:1px solid #A7F3D0; }
 .result-box.error   { background:#FEF2F2; color:#991B1B; border:1px solid #FECACA; }
 .result-box.info    { background:#EFF6FF; color:#1E40AF; border:1px solid #BFDBFE; }
+/* Markdown 渲染内容（用于报告/教练回复） */
+.result-box h1,.result-box h2,.result-box h3 { margin:12px 0 6px; color:var(--text); }
+.result-box h1 { font-size:16px; } .result-box h2 { font-size:15px; } .result-box h3 { font-size:14px; }
+.result-box p { margin:6px 0; }
+.result-box ul,.result-box ol { margin:4px 0 8px 18px; padding:0; }
+.result-box li { margin:2px 0; line-height:1.7; }
+.result-box strong { color:var(--text); font-weight:600; }
+.result-box code { background:rgba(0,0,0,.06); padding:1px 5px; border-radius:3px; font-size:12px; }
+.result-box blockquote { margin:8px 0; padding:4px 10px; border-left:3px solid var(--primary); background:rgba(99,102,241,.05); }
 
 /* --- Tables --- */
 .list-table { width:100%; border-collapse:collapse; margin-top:10px; font-size:13px; }
@@ -380,6 +389,7 @@ button.ghost:hover { background:#F3F4F6; }
 /* ---- page visibility ---- */
 .page { display:none; }
 .page.active { display:block; }
+#page-coach.active { display:flex; flex-direction:column; height:100%; padding:0; }
 
 /* --- Responsive --- */
 @media(max-width:768px) {
@@ -395,6 +405,7 @@ button.ghost:hover { background:#F3F4F6; }
 .text-center { text-align:center; }
 .mt-s { margin-top:8px; } .mt-m { margin-top:16px; } .mt-l { margin-top:24px; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
 
@@ -614,7 +625,7 @@ button.ghost:hover { background:#F3F4F6; }
     </div>
 
     <!-- ========== PAGE: COACH (AI 教练对话 — 沉浸式) ========== -->
-    <div class="page" id="page-coach" style="display:flex;flex-direction:column;height:100%;padding:0;">
+    <div class="page" id="page-coach">
       <div class="chat-messages" id="chatBox">
         <div class="chat-msg bot">
           <div class="avatar">&#129302;</div>
@@ -980,7 +991,7 @@ async function doGenerateReport(){
     const d=await r.json();
     if(r.ok){
       let h='<b>\u2714 日报已生成</b>\n\n';
-      h+='<b>【小结】</b>\n'+d.summary+'\n\n<b>【建议】</b>\n'+d.advice;
+      h+='<b>【小结】</b>\n'+renderMd(d.summary)+'\n\n<b>【建议】</b>\n'+renderMd(d.advice);
       showResult('reportResult',h,'success');
       loadReportList();
     } else {showResult('reportResult','错误('+r.status+'): '+JSON.stringify(d),'error');}
@@ -1137,7 +1148,7 @@ async function _loadList(url,elId,fmtFn){
     if(!handle401(r))return;
     const arr=await r.json();
     if(!Array.isArray(arr)||arr.length===0){el.innerHTML='<div class="empty-state"><p>暂无记录</p></div>';return;}
-    el.innerHTML='<table class="list-table"><thead><tr>'+fmtFn(null,true)+'</tr></thead><tbody>'+arr.map(fmtFn).join('')+'</tbody></table>';
+    el.innerHTML='<table class="list-table"><thead><tr>'+fmtFn(null,true)+'</tr></thead><tbody>'+arr.map(x=>fmtFn(x)).join('')+'</tbody></table>';
   }catch(e){el.innerHTML='<div class="empty-state"><p style="color:var(--danger)">加载失败：'+e.message+'</p></div>';}
 }
 
@@ -1220,6 +1231,12 @@ function esc(s){ if(!s)return''; return String(s).replace(/&/g,'&amp;').replace(
 function showResult(id,text,type){
   const el=document.getElementById(id);
   el.className='result-box show '+(type||'info');el.innerHTML=text;
+}
+/** 将 Markdown 文本渲染为安全的 HTML（用于报告/教练回复等场景） */
+function renderMd(raw){
+  if(!raw) return '';
+  try { return typeof marked!=='undefined'?marked.parse(raw):raw; }
+  catch(e){ return raw; }
 }
 
 function showAuthMsg(text,type){
