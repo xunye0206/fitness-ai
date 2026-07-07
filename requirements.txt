@@ -10,3 +10,4 @@ pytest
 httpx
 langgraph  # M2 引入 Agent 状态机（vision→guardrail→finalize）
 python-multipart  # 文件上传（UploadFile）依赖
+apscheduler  # M4 定时推送调度（每日固定 2 条 + 事件巡检 1 条）

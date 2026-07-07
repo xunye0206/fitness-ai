@@ -36,3 +36,19 @@ class Guardrails:
                 f"{self.confidence_threshold:.2f}，需用户确认/修正后方可采信"
             )
         return GuardrailVerdict(allowed=True, needs_confirmation=needs_confirmation, reasons=reasons)
+
+
+# M4：推送内容护栏
+DANGEROUS_PUSH_KEYWORDS = ("加量", "加练", "加强训练", "冲刺", "突破极限")
+
+
+def push_content_safe(body: str, has_injury: bool) -> GuardrailVerdict:
+    """推送内容护栏：有伤病信号时，禁止含「加量/加练」等危险鼓励，改建议休息。
+
+    对应设计稿《策划书》§六：检测到伤病信号 → 禁止「加量」类建议。
+    """
+    reasons: list[str] = []
+    if has_injury and any(k in (body or "") for k in DANGEROUS_PUSH_KEYWORDS):
+        reasons.append("检测到伤病信号，已拦截「加量/加练」类危险鼓励，建议休息")
+        return GuardrailVerdict(allowed=False, reasons=reasons)
+    return GuardrailVerdict(allowed=True, reasons=reasons)
