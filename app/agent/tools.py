@@ -15,6 +15,7 @@ from app.agent.schemas import FoodEstimate
 from app.llm.base import Message
 from app.llm.router import reason
 from app.modules.diet.domain import DietEntry
+from app.modules.diet.service import infer_meal_type
 from app.modules.report.service import generate_report
 from app.modules.training.schemas import TrainingCreate
 from app.modules.training.service import record_training
@@ -142,6 +143,7 @@ async def _tool_log_diet(args: dict, session: AsyncSession, user_id: int) -> str
         status="confirmed",
         raw_estimate=est.note,
     )
+    entry.meal_type = infer_meal_type(entry.created_at)
     session.add(entry)
     await session.commit()
     await session.refresh(entry)

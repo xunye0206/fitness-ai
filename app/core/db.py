@@ -52,6 +52,8 @@ async def init_db() -> None:
             except Exception as exc:
                 logger.warning("pgvector 扩展创建失败（可能已存在或无权限）：%s", exc)
         await conn.run_sync(SQLModel.metadata.create_all)
+        # 兼容旧库：diet_entries 缺 meal_type 列时补列（新库 create_all 已建，此处幂等跳过）
+        await _migrate_diet_meal_type(conn)
         if _is_postgres():
             try:
                 await conn.execute(
@@ -68,3 +70,24 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI 依赖：每个请求一个异步会话。"""
     async with async_session_factory() as session:
         yield session
+
+
+async def _migrate_diet_meal_type(conn) -> None:
+    """给已存在的 diet_entries 表补 meal_type 列（若不存在）。SQLite/Postgres 通用。"""
+    try:
+        def _has_col(sync_conn) -> bool:
+            from sqlalchemy import inspect
+            insp = inspect(sync_conn)
+            if not insp.has_table("diet_entries"):
+                return False
+            cols = [c["name"] for c in insp.get_columns("diet_entries")]
+            return "meal_type" in cols
+
+        exists = await conn.run_sync(_has_col)
+        if not exists:
+            await conn.execute(
+                text("ALTER TABLE diet_entries ADD COLUMN meal_type VARCHAR(20) DEFAULT 'other'")
+            )
+            logger.info("已为 diet_entries 表新增 meal_type 列")
+    except Exception as exc:
+        logger.warning("diet_entries.meal_type 迁移跳过：%s", exc)

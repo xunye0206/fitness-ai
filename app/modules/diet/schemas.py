@@ -31,4 +31,5 @@ class DietEntryOut(BaseModel):
     fat_g: float
     confidence: float
     status: str
+    meal_type: str = "other"
     created_at: datetime

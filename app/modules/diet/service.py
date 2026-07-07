@@ -7,6 +7,7 @@ import base64
 import os
 import uuid
 
+from datetime import datetime
 from fastapi import UploadFile
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -14,7 +15,26 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.agent import run_diet_recognition
 from app.agent.schemas import FoodEstimate
 from app.config import settings
-from app.modules.diet.domain import DietEntry
+from app.modules.diet.domain import CST, DietEntry
+
+# 餐次区间（按北京时间小时判断，无需用户手动选择）
+_MEAL_RULES = [
+    (5, 11, "breakfast"),       # 05:00–10:59 早餐
+    (11, 15, "lunch"),          # 11:00–14:59 午餐
+    (15, 18, "afternoon_tea"),  # 15:00–17:59 下午茶
+    (18, 22, "dinner"),         # 18:00–21:59 晚餐
+]
+
+
+def infer_meal_type(dt: datetime | None) -> str:
+    """根据记录时间（转北京时间）推断餐次，返回英文枚举。"""
+    if dt is None:
+        return "other"
+    hour = dt.astimezone(CST).hour if dt.tzinfo is not None else dt.hour
+    for start, end, label in _MEAL_RULES:
+        if start <= hour < end:
+            return label
+    return "midnight_snack"  # 22:00–04:59 宵夜
 
 
 def _save_image(data: bytes, filename: str) -> str:
@@ -38,7 +58,7 @@ async def recognize_diet(session: AsyncSession, user_id: int, image: UploadFile)
     # 视觉失败：仍落一条 pending 记录，让用户手动录入
     if estimate is None:
         entry = DietEntry(user_id=user_id, image_path=image_path, name="", status="pending",
-                          raw_estimate="视觉识别失败")
+                          raw_estimate="视觉识别失败", meal_type=infer_meal_type(datetime.now(CST)))
         session.add(entry)
         await session.commit()
         await session.refresh(entry)
@@ -62,6 +82,7 @@ async def recognize_diet(session: AsyncSession, user_id: int, image: UploadFile)
         status="confirmed" if not needs_confirmation else "pending",
         raw_estimate=estimate.note,
     )
+    entry.meal_type = infer_meal_type(entry.created_at)
     session.add(entry)
     await session.commit()
     await session.refresh(entry)

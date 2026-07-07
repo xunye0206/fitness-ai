@@ -1153,9 +1153,11 @@ async function _loadList(url,elId,fmtFn){
 }
 
 function _fmtDiet(x,isHead){
-  if(isHead) return '<th>时间</th><th>食物</th><th>热量</th><th>蛋白</th><th>碳水</th><th>脂肪</th><th>状态</th>';
-  return '<tr><td>'+(x.created_at?new Date(x.created_at).toLocaleString().slice(0,-3):'-')+'</td>'
-    +'<td>'+esc(x.name)+'</td><td>'+x.calories+'</td><td>'+x.protein_g+'g</td><td>'+x.carbs_g+'g</td><td>'+x.fat_g+'g</td>'
+  if(isHead) return '<th>时间</th><th>餐次</th><th>食物</th><th>热量</th><th>蛋白</th><th>碳水</th><th>脂肪</th><th>状态</th>';
+  const mealMap={breakfast:'早餐',lunch:'午餐',afternoon_tea:'下午茶',dinner:'晚餐',midnight_snack:'宵夜',other:'其他'};
+  const meal=mealMap[x.meal_type]||x.meal_type||'其他';
+  const t=x.created_at?new Date(x.created_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'-';
+  return '<tr><td>'+t+'</td><td>'+meal+'</td><td>'+esc(x.name)+'</td><td>'+x.calories+'</td><td>'+x.protein_g+'g</td><td>'+x.carbs_g+'g</td><td>'+x.fat_g+'g</td>'
     +'<td>'+(x.status==='confirmed'?'<span class="tag green">确认</span>':'<span class="tag amber">'+esc(x.status)+'</span>')+'</td></tr>';
 }
 function _fmtTraining(x,isHead){

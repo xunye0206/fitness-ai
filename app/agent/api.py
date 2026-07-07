@@ -152,16 +152,21 @@ async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> Stream
 
             # 4) 若模型发起工具调用，执行并回填，再流式生成最终回复
             if tool_calls:
-                messages.append(
-                    Message(role="assistant", content="", tool_calls=tool_calls)
-                )
-                for tc in tool_calls:
-                    outcome = await execute_tool(tc.name, tc.arguments, session, current.id)
-                    actions.append(outcome)
-                    yield _sse({"type": "action", "text": outcome})
+                # 过滤无效工具调用（name 为空/None 的中间态片段）
+                valid_calls = [tc for tc in tool_calls if tc.name]
+                if valid_calls:
                     messages.append(
-                        Message(role="tool", content=outcome, tool_call_id=tc.id, name=tc.name)
+                        Message(role="assistant", content="", tool_calls=valid_calls)
                     )
+                    for tc in valid_calls:
+                        outcome = await execute_tool(tc.name, tc.arguments, session, current.id)
+                        # 只推送成功的动作给前端（"未知工具/执行失败"不展示）
+                        if not outcome.startswith("未知工具") and not outcome.startswith("工具"):
+                            actions.append(outcome)
+                            yield _sse({"type": "action", "text": outcome})
+                        messages.append(
+                            Message(role="tool", content=outcome, tool_call_id=tc.id, name=tc.name)
+                        )
                 # 最终回复流式输出
                 async for chunk in reason_stream(messages):
                     if chunk:
