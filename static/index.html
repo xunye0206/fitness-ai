@@ -405,7 +405,6 @@ button.ghost:hover { background:#F3F4F6; }
 .text-center { text-align:center; }
 .mt-s { margin-top:8px; } .mt-m { margin-top:16px; } .mt-l { margin-top:24px; }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
 
@@ -1234,11 +1233,30 @@ function showResult(id,text,type){
   const el=document.getElementById(id);
   el.className='result-box show '+(type||'info');el.innerHTML=text;
 }
-/** 将 Markdown 文本渲染为安全的 HTML（用于报告/教练回复等场景） */
+/** 轻量 Markdown → HTML 渲染（零外部依赖）。
+ *  覆盖报告/教练回复实际用到的语法：**加粗**、- 列表、#标题、>引用、`代码`。
+ */
 function renderMd(raw){
   if(!raw) return '';
-  try { return typeof marked!=='undefined'?marked.parse(raw):raw; }
-  catch(e){ return raw; }
+  var h=String(raw);
+  // 1) 先处理代码行（避免被后续规则误解析）——简单行内反引号
+  h=h.replace(/`([^`\n]+)`/g,'<code>$1</code>');
+  // 2) 标题 ## / ** （保留换行）
+  h=h.replace(/^###\s+(.+)$/gm,'<h3>$1</h3>');
+  h=h.replace(/^##\s+(.+)$/gm,'<h2>$1</h2>');
+  h=h.replace(/^#\s+(.+)$/gm,'<h1>$1</h1>');
+  // 3) **加粗**（不能跨行）
+  h=h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  // 4) 无序列表 - item（必须独占一行开头）
+  h=h.replace(/^[ \t]*[-*+]\s+(.+)$/gm,'<li>$1</li>');
+  // 5) 将连续 <li> 包裹在 <ul> 中
+  h=h.replace(/((?:<li>.*<\/li>(?:\n|$))+)/g,'<ul>$1</ul>');
+  // 6) 引用块 > 开头
+  h=h.replace(/^>\s+(.+)$/gm,'<blockquote>$1</blockquote>');
+  // 7) 段落：两个以上连续换行 → 分段；单个换行转 <br>
+  h=h.replace(/\n{2,}/g,'</p><p>');
+  h=h.replace(/\n/g,'<br>');
+  return '<p>'+h+'</p>';
 }
 
 function showAuthMsg(text,type){
