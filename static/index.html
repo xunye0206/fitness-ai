@@ -821,7 +821,7 @@ async function doRecognize(){
     const d=await r.json();
     if(!r.ok){showResult('recognizeResult','错误 ('+r.status+'): '+JSON.stringify(d),'error');btn.disabled=false;return;}
     const e=d.estimate;
-    let html='<b>\u2714 识别完成！entry_id='+d.entry_id+'</b>\n\n';
+    let html='<b>\u2714 识别完成！</b>\n\n';
     if(e){
       html+='<b>食物：</b>'+esc(e.name)+'\n';
       html+='<b>热量：</b>'+e.calories+' 大卡\n\n';
@@ -857,8 +857,10 @@ async function doAddTraining(){
     const r=await apiPost('/training',body);
     if(!handle401(r))return;
     const d=await r.json();
-    showResult('trainingResult',(r.ok?'\u2714 ':'\u2718 ')+JSON.stringify(d,null,2),r.ok?'success':'error');
-    if(r.ok)loadTrainingList();
+    if(r.ok){
+      showResult('trainingResult','\u2714 训练记录已保存！'+esc(body.exercise_type)+' · '+body.duration_min+'分钟','success');
+      loadTrainingList();
+    } else {showResult('trainingResult','保存失败：'+(d.detail||'未知错误'),'error');}
   }catch(e){showResult('trainingResult','失败：'+e.message,'error');}
 }
 
@@ -871,7 +873,7 @@ async function doGenerateReport(){
     if(!handle401(r))return;
     const d=await r.json();
     if(r.ok){
-      let h='<b>\u2714 报告已生成（id='+d.id+', 模型：'+d.model+'）</b>\n\n';
+      let h='<b>\u2714 日报已生成</b>\n\n';
       h+='<b>【小结】</b>\n'+d.summary+'\n\n<b>【建议】</b>\n'+d.advice;
       showResult('reportResult',h,'success');
       loadReportList();
