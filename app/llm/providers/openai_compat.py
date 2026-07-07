@@ -181,27 +181,26 @@ class OpenAICompatibleProvider(LLMProvider):
         except Exception:
             yield {"type": "delta", "text": ""}
 
-
-def _msg_to_dict(m: Message) -> dict:
-    """把 Message 序列化为 OpenAI 消息格式；自动带上 tool_calls / tool 角色字段。"""
-    d: dict[str, Any] = {"role": m.role, "content": m.content or ""}
-    if m.tool_calls:
-        d["tool_calls"] = [
-            {
-                "id": tc.id,
-                "type": "function",
-                "function": {
-                    "name": tc.name,
-                    "arguments": json.dumps(tc.arguments, ensure_ascii=False),
-                },
-            }
-            for tc in m.tool_calls
-        ]
-    if m.tool_call_id:
-        d["tool_call_id"] = m.tool_call_id
-    if m.name:
-        d["name"] = m.name
-    return d
+    def _msg_to_dict(m: Message) -> dict:
+        """把 Message 序列化为 OpenAI 消息格式；自动带上 tool_calls / tool 角色字段。"""
+        d: dict[str, Any] = {"role": m.role, "content": m.content or ""}
+        if m.tool_calls:
+            d["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.name,
+                        "arguments": json.dumps(tc.arguments, ensure_ascii=False),
+                    },
+                }
+                for tc in m.tool_calls
+            ]
+        if m.tool_call_id:
+            d["tool_call_id"] = m.tool_call_id
+        if m.name:
+            d["name"] = m.name
+        return d
 
     async def see(self, image_base64: str, prompt: str) -> LLMResult:
         if Capability.VISION not in self.capabilities:
