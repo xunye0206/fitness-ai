@@ -433,9 +433,6 @@ button.ghost:hover { background:#F3F4F6; }
     <div class="nav-item" data-page="report" onclick="navigate('report')">
       <span class="nav-icon">&#128240;</span>日报报告
     </div>
-    <div class="nav-item" data-page="coach" onclick="navigate('coach')">
-      <span class="nav-icon">&#129302;</span>AI 教练
-    </div>
     <div class="nav-item" data-page="reminders" onclick="navigate('reminders')">
       <span class="nav-icon">&#128276;</span>提醒
     </div>
@@ -889,8 +886,10 @@ function requireAuth(actionFn) {
 
 // ---------- API helpers ----------
 function apiHeaders() { return {'Authorization':'Bearer '+token}; }
-function apiPost(url,body) {
-  return fetch(API+url,{method:'POST',headers:{...apiHeaders(),'Content-Type':'application/json'},body:JSON.stringify(body)});
+function apiPost(url,body,signal){
+  const opts={method:'POST',headers:{...apiHeaders(),'Content-Type':'application/json'},body:JSON.stringify(body)};
+  if(signal) opts.signal=signal;
+  return fetch(API+url,opts);
 }
 
 function handle401(response) {
@@ -1050,7 +1049,11 @@ async function doChat(){
   try{
     const body={message:text, history:chatHistory.slice(0,-1)};
     if(img) body.image_base64=img.base64;
-    const r=await apiPost('/agent/chat', body);
+    // 60 秒超时：防止后端调模型时请求挂死
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60000);
+    const r=await apiPost('/agent/chat', body, ctrl.signal);
+    clearTimeout(timer);
     if(!handle401(r)){btn.disabled=false;return;}
     const d=await r.json();
     _removeLastBotBubble();
@@ -1062,7 +1065,12 @@ async function doChat(){
     }
   }catch(e){
     _removeLastBotBubble();
-    appendChat('bot','出错了：'+e.message);
+    let errMsg = e.message || '';
+    if(e.name === 'AbortError' || errMsg.includes('abort')){
+      appendChat('bot','⏱ 响应超时了，教练可能正在思考比较复杂的问题。你可以稍后再试试～');
+    } else {
+      appendChat('bot','出错了：'+errMsg);
+    }
   }
   btn.disabled=false;
 }
