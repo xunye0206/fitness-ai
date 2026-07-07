@@ -71,7 +71,7 @@ class OpenAICompatibleProvider(LLMProvider):
             client = self._client()
             payload: dict[str, Any] = {
                 "model": self.model,
-                "messages": [_msg_to_dict(m) for m in messages],
+                "messages": [self._msg_to_dict(m) for m in messages],
             }
             if tools:
                 payload["tools"] = tools
@@ -110,7 +110,7 @@ class OpenAICompatibleProvider(LLMProvider):
             client = self._client()
             payload: dict[str, Any] = {
                 "model": self.model,
-                "messages": [_msg_to_dict(m) for m in messages],
+                "messages": [self._msg_to_dict(m) for m in messages],
                 "stream": True,
                 "stream_options": {"include_usage": False},
             }
@@ -124,8 +124,10 @@ class OpenAICompatibleProvider(LLMProvider):
                 delta = chunk.choices[0].delta
                 if delta and getattr(delta, "content", None):
                     yield delta.content
-        except Exception:
+        except Exception as exc:
             # 流式中途出错：yield 空，由调用方在 done 事件标记 ok=False
+            import logging
+            logging.getLogger("llm").error("reason_stream 异常: %s: %s", type(exc).__name__, exc, exc_info=True)
             yield ""
 
     async def reason_stream_with_tools(
@@ -146,7 +148,7 @@ class OpenAICompatibleProvider(LLMProvider):
             client = self._client()
             payload: dict[str, Any] = {
                 "model": self.model,
-                "messages": [_msg_to_dict(m) for m in messages],
+                "messages": [self._msg_to_dict(m) for m in messages],
                 "stream": True,
                 "stream_options": {"include_usage": False},
                 "tools": tools,
@@ -178,10 +180,12 @@ class OpenAICompatibleProvider(LLMProvider):
                         args = {}
                     calls.append(ToolCall(id=tid, name=info["name"], arguments=args))
                 yield {"type": "tools", "calls": calls}
-        except Exception:
+        except Exception as exc:
+            import logging
+            logging.getLogger("llm").error("reason_stream_with_tools 异常: %s: %s", type(exc).__name__, exc, exc_info=True)
             yield {"type": "delta", "text": ""}
 
-    def _msg_to_dict(m: Message) -> dict:
+    def _msg_to_dict(self, m: Message) -> dict:
         """把 Message 序列化为 OpenAI 消息格式；自动带上 tool_calls / tool 角色字段。"""
         d: dict[str, Any] = {"role": m.role, "content": m.content or ""}
         if m.tool_calls:
