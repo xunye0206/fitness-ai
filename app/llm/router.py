@@ -29,6 +29,33 @@ async def reason_with_tools(
         return LLMResult(text="", ok=False, error=str(exc))
 
 
+async def reason_stream(messages: list[Message], tools: Optional[list[dict]] = None):
+    """流式文本推理（逐字输出）。走 reasoning_provider，yield 文本片段。
+
+    工具决策请仍用 reason_with_tools / reason_stream_with_tools（带 tool_calls 解析）。
+    """
+    provider = get("reasoning")
+    try:
+        async for chunk in provider.reason_stream(messages, tools=tools):
+            yield chunk
+    except Exception:
+        yield ""
+
+
+async def reason_stream_with_tools(messages: list[Message], tools: list[dict], tool_choice: str = "auto"):
+    """流式推理并检测工具调用：yield {"type":"delta","text":...} 或 {"type":"tools","calls":[ToolCall]}。
+
+    调用方在收到 delta 时即可推给前端（首 token 极早到达）；收到 tools 事件时执行工具并回填，
+    再调用 reason_stream 生成最终回复。
+    """
+    provider = get("reasoning")
+    try:
+        async for ev in provider.reason_stream_with_tools(messages, tools, tool_choice):
+            yield ev
+    except Exception:
+        yield {"type": "delta", "text": ""}
+
+
 async def see(image_base64: str, prompt: str) -> LLMResult:
     """视觉识图（拍照估热量等）。走 vision_provider。"""
     return await get("vision").see(image_base64, prompt)

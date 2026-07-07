@@ -2,18 +2,38 @@
 
 全部走 fake 模型 + SQLite，不联网、不填 key。
 重点验证：① 图片 → 自动建饮食记录；② 各工具 handler 落地；③ 工具调用循环把意图转成动作。
+端点为 SSE 流式，测试解析 SSE 帧。
 """
 import asyncio
+import json
 
 from sqlmodel import select
 
 from app.agent import api as agent_api
 from app.agent.tools import execute_tool
 from app.core.db import async_session_factory
-from app.llm.base import LLMResult, ToolCall
+from app.llm.base import ToolCall
 from app.modules.diet.domain import DietEntry
 from app.modules.report.domain import DailyReport
 from app.modules.training.domain import TrainingEntry
+
+
+def _parse_sse(text: str) -> dict:
+    reply = ""
+    actions = []
+    ok = True
+    for frame in text.split("\n\n"):
+        lines = [l for l in frame.split("\n") if l.startswith("data:")]
+        if not lines:
+            continue
+        ev = json.loads(lines[0][5:].strip())
+        if ev["type"] == "delta":
+            reply += ev["text"]
+        elif ev["type"] == "action":
+            actions.append(ev["text"])
+        elif ev["type"] == "done":
+            ok = ev["ok"]
+    return {"reply": reply, "actions": actions, "ok": ok}
 
 
 def _auth(client):
@@ -30,7 +50,8 @@ def test_chat_image_creates_diet_entry(client):
     r = client.post("/agent/chat", json={"message": "", "image_base64": img},
                     headers={"Authorization": f"Bearer {tok}"})
     assert r.status_code == 200
-    assert r.json()["ok"] is True
+    d = _parse_sse(r.text)
+    assert d["ok"] is True
     async def run():
         async with async_session_factory() as s:
             return (await s.execute(select(DietEntry).where(DietEntry.user_id == uid))).scalars().all()
@@ -80,29 +101,24 @@ def test_execute_tool_generate_report(client):
 
 
 def test_chat_tool_loop_invokes_execute(client, monkeypatch):
-    """模型首轮发起工具调用 → 执行 → 次轮生成自然语言回复。"""
-    call1 = LLMResult(
-        text="", ok=True,
-        tool_calls=[ToolCall(id="c1", name="log_training",
-                             arguments={"exercise_type": "游泳", "duration_min": 40, "intensity": "high"})],
-    )
-    call2 = LLMResult(text="好的，已帮你记录游泳 40 分钟高强度训练！", ok=True)
-    q = [call1, call2]
+    """模型首轮发起工具调用 → 执行 → 次轮流式生成自然语言回复。"""
+    async def fake_reason_stream_with_tools(messages, tools, tool_choice="auto"):
+        yield {"type": "tools", "calls": [
+            ToolCall(id="c1", name="log_training",
+                     arguments={"exercise_type": "游泳", "duration_min": 40, "intensity": "high"})
+        ]}
 
-    async def fake_reason_with_tools(messages, tools, tool_choice="auto"):
-        return q.pop(0)
+    async def fake_reason_stream(messages, tools=None):
+        yield "好的，已帮你记录游泳 40 分钟高强度训练！"
 
-    async def fake_reason(messages):
-        return q.pop(0)
-
-    monkeypatch.setattr(agent_api, "reason_with_tools", fake_reason_with_tools)
-    monkeypatch.setattr(agent_api, "reason", fake_reason)
+    monkeypatch.setattr(agent_api, "reason_stream_with_tools", fake_reason_stream_with_tools)
+    monkeypatch.setattr(agent_api, "reason_stream", fake_reason_stream)
 
     tok, uid = _auth(client)
     r = client.post("/agent/chat", json={"message": "帮我记录游泳40分钟高强度"},
                     headers={"Authorization": f"Bearer {tok}"})
     assert r.status_code == 200
-    d = r.json()
+    d = _parse_sse(r.text)
     assert d["ok"] is True
     assert "游泳" in d["reply"]
     assert any("已记录训练" in a for a in d["actions"])

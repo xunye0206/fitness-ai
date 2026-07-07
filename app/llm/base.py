@@ -49,6 +49,14 @@ class LLMProvider:
     async def reason(self, messages: list[Message]) -> LLMResult:
         raise NotImplementedError
 
+    async def reason_stream(self, messages: list[Message], tools=None, tool_choice="auto"):
+        """流式推理（逐字 yield 文本）。默认未实现。"""
+        raise NotImplementedError
+
+    async def reason_stream_with_tools(self, messages: list[Message], tools: list[dict], tool_choice: str = "auto"):
+        """流式推理并检测工具调用：yield {"type":"delta","text":...} 或 {"type":"tools","calls":[ToolCall]}。默认未实现。"""
+        raise NotImplementedError
+
     async def see(self, image_base64: str, prompt: str) -> LLMResult:
         raise NotImplementedError
 

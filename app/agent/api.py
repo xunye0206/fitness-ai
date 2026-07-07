@@ -1,20 +1,24 @@
 """agent 横切层暴露的对外接口：AI 教练对话（支持联动其他模块）。
 
 区别于功能模块（diet/training/...），对话是 agent 的核心交互面——
-用户直接对教练说话，教练基于「近期数据 + 语义记忆 + 护栏」作答；
+用户直接对教练说话，教练基于「近期数据 + 护栏」作答；
 当用户意图是"记饮食/记训练/出报告"时，教练通过工具调用真正去执行这些动作。
+
+响应采用 SSE 流式输出：教练回复逐字推送给前端，避免「沉默等待」的体感卡顿。
 """
+import json
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.agent.graph import run_diet_recognition
 from app.agent.tools import TOOLS, execute_tool
 from app.core.db import get_session
-from app.llm.base import LLMResult, Message
-from app.llm.router import reason, reason_with_tools
+from app.llm.base import Message
+from app.llm.router import reason_stream, reason_stream_with_tools
 from app.agent.context import build_context
 from app.modules.auth.api import get_current_user
 from app.modules.auth.domain import User
@@ -43,12 +47,6 @@ class ChatIn(BaseModel):
     message: str
     history: list[dict] = []  # 前端维护的对话历史：[{"role":"user|assistant","content":"..."}]
     image_base64: Optional[str] = None  # 可选：用户发来的食物图片（base64，不含 data: 前缀）
-
-
-class ChatOut(BaseModel):
-    reply: str
-    ok: bool = True
-    actions: list = []  # 本次对话实际执行的业务动作摘要（如"已记录饮食：..."），供前端展示
 
 
 async def _handle_image(
@@ -87,16 +85,17 @@ async def _handle_image(
     return note
 
 
-@router.post("/chat", response_model=ChatOut)
-async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> ChatOut:
-    """AI 教练对话（含工具调用循环）。
+@router.post("/chat")
+async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> StreamingResponse:
+    """AI 教练对话（含工具调用循环），SSE 流式输出。
 
-    流程：组装上下文 → 调用带 tools 的推理 → 若模型发起工具调用则执行并回填 →
-    再次推理生成自然语言回复。失败（模型/网络）时优雅降级为友好提示，不抛 500。
+    流程：组装上下文 → 流式推理（同时检测工具调用）→ 若模型发起工具调用则执行并回填 →
+    再流式生成最终自然语言回复。首 token 尽快到达前端，避免「思考中」长期卡顿。
+    失败（模型/网络）时优雅降级为友好提示，不抛 500。
     """
-    # 1) 组装上下文（近 7 天 + 语义记忆；embedding 未启用时自动降级）
+    # 1) 组装上下文（近 7 天窗口；聊天场景关闭实时语义 embedding，省一轮网络往返）
     try:
-        ctx = await build_context(session, current.id, days=7, use_semantic=True)
+        ctx = await build_context(session, current.id, days=7, use_semantic=False)
     except Exception:
         ctx = "（暂无可用的近期数据）"
 
@@ -111,36 +110,48 @@ async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> ChatOu
     system = COACH_SYSTEM_PROMPT + "\n\n【用户近期数据】\n" + (ctx or "（暂无记录）")
     messages: list[Message] = [Message(role="system", content=system)]
     # 2) 带入最近若干轮历史（避免上下文过长）
-    for h in (payload.history or [])[-6:]:
+    for h in (payload.history or [])[-4:]:
         role = h.get("role")
         content = h.get("content")
         if role in ("user", "assistant") and content:
             messages.append(Message(role=role, content=content))
     messages.append(Message(role="user", content=user_content))
 
-    actions: list[str] = []
-    # 3) 工具调用循环（最多 3 轮，防止异常死循环）
-    res: LLMResult = await reason_with_tools(messages, TOOLS)
-    for _ in range(3):
-        if not res.ok or not res.tool_calls:
-            break
-        # 把模型的工具调用声明作为 assistant 消息保留
-        messages.append(
-            Message(role="assistant", content=res.text, tool_calls=res.tool_calls)
-        )
-        for tc in res.tool_calls:
-            outcome = await execute_tool(tc.name, tc.arguments, session, current.id)
-            actions.append(outcome)
-            messages.append(
-                Message(role="tool", content=outcome, tool_call_id=tc.id, name=tc.name)
-            )
-        # 再次推理，生成带动作结果的自然语言回复
-        res = await reason(messages)
+    def _sse(obj: dict) -> str:
+        return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
-    if not res.ok:
-        return ChatOut(
-            reply="抱歉，教练这会儿有点忙，稍后再来聊吧～（若持续出现可检查模型配置）",
-            ok=False,
-            actions=actions,
-        )
-    return ChatOut(reply=res.text or "（教练没有返回内容）", ok=True, actions=actions)
+    async def event_gen():
+        actions: list[str] = []
+        try:
+            # 3) 流式推理，同时检测工具调用（首 token 立即推送）
+            tool_calls = None
+            async for ev in reason_stream_with_tools(messages, TOOLS):
+                if ev.get("type") == "delta":
+                    if ev.get("text"):
+                        yield _sse({"type": "delta", "text": ev["text"]})
+                elif ev.get("type") == "tools":
+                    tool_calls = ev.get("calls")
+
+            # 4) 若模型发起工具调用，执行并回填，再流式生成最终回复
+            if tool_calls:
+                messages.append(
+                    Message(role="assistant", content="", tool_calls=tool_calls)
+                )
+                for tc in tool_calls:
+                    outcome = await execute_tool(tc.name, tc.arguments, session, current.id)
+                    actions.append(outcome)
+                    yield _sse({"type": "action", "text": outcome})
+                    messages.append(
+                        Message(role="tool", content=outcome, tool_call_id=tc.id, name=tc.name)
+                    )
+                # 最终回复流式输出
+                async for chunk in reason_stream(messages):
+                    if chunk:
+                        yield _sse({"type": "delta", "text": chunk})
+
+            yield _sse({"type": "done", "ok": True})
+        except Exception as exc:
+            yield _sse({"type": "delta", "text": "出错了：" + str(exc)})
+            yield _sse({"type": "done", "ok": False})
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream; charset=utf-8")

@@ -89,6 +89,95 @@ class OpenAICompatibleProvider(LLMProvider):
         except Exception as exc:  # 降级：结构化错误，不抛出
             return LLMResult(text="", ok=False, error=str(exc))
 
+    async def reason_stream(
+        self,
+        messages: list[Message],
+        tools: Optional[list[dict]] = None,
+        tool_choice: str = "auto",
+    ):
+        """流式推理：逐块 yield 文本（str）。
+
+        用于 AI 教练的逐字输出，降低「沉默等待」的体感延迟。
+        tool_calls 不在此路径处理（工具决策走非流式的 reason_with_tools）。
+        """
+        if Capability.TEXT not in self.capabilities:
+            yield ""
+            return
+        try:
+            client = self._client()
+            payload: dict[str, Any] = {
+                "model": self.model,
+                "messages": [_msg_to_dict(m) for m in messages],
+                "stream": True,
+                "stream_options": {"include_usage": False},
+            }
+            if tools:
+                payload["tools"] = tools
+                payload["tool_choice"] = tool_choice
+            stream = await client.chat.completions.create(**payload)
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta and getattr(delta, "content", None):
+                    yield delta.content
+        except Exception:
+            # 流式中途出错：yield 空，由调用方在 done 事件标记 ok=False
+            yield ""
+
+    async def reason_stream_with_tools(
+        self,
+        messages: list[Message],
+        tools: list[dict],
+        tool_choice: str = "auto",
+    ):
+        """流式推理并检测工具调用：yield {"type":"delta","text":...} 或 {"type":"tools","calls":[ToolCall]}。
+
+        OpenAI / DeepSeek 兼容接口在 stream 模式下通过 delta.tool_calls 增量回传函数调用，
+        这里边收边拼，流结束后若拼接出工具调用则补发一条 tools 事件。
+        """
+        if Capability.TEXT not in self.capabilities:
+            yield {"type": "delta", "text": ""}
+            return
+        try:
+            client = self._client()
+            payload: dict[str, Any] = {
+                "model": self.model,
+                "messages": [_msg_to_dict(m) for m in messages],
+                "stream": True,
+                "stream_options": {"include_usage": False},
+                "tools": tools,
+                "tool_choice": tool_choice,
+            }
+            stream = await client.chat.completions.create(**payload)
+            acc: dict[str, dict] = {}  # id -> {"name":..., "args":...}
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta and getattr(delta, "content", None):
+                    yield {"type": "delta", "text": delta.content}
+                for tc in getattr(delta, "tool_calls", []) or []:
+                    tid = tc.id or f"_t{len(acc)}"
+                    if tid not in acc:
+                        acc[tid] = {
+                            "name": (tc.function.name if tc.function else None),
+                            "args": "",
+                        }
+                    if tc.function and tc.function.arguments:
+                        acc[tid]["args"] += tc.function.arguments
+            if acc:
+                calls: list[ToolCall] = []
+                for tid, info in acc.items():
+                    try:
+                        args = json.loads(info["args"] or "{}")
+                    except Exception:
+                        args = {}
+                    calls.append(ToolCall(id=tid, name=info["name"], arguments=args))
+                yield {"type": "tools", "calls": calls}
+        except Exception:
+            yield {"type": "delta", "text": ""}
+
 
 def _msg_to_dict(m: Message) -> dict:
     """把 Message 序列化为 OpenAI 消息格式；自动带上 tool_calls / tool 角色字段。"""

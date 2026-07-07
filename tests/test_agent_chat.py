@@ -1,4 +1,9 @@
-"""M8：AI 教练对话接口测试（fake 模型，零网络零 key）。"""
+"""M8：AI 教练对话接口测试（fake 模型，零网络零 key）。
+
+端点改为 SSE 流式输出，测试解析 SSE 帧聚合成 {reply, actions, ok}。
+"""
+import json
+
 from app.main import app
 from fastapi.testclient import TestClient
 
@@ -6,6 +11,25 @@ from fastapi.testclient import TestClient
 def _token(client: TestClient) -> str:
     r = client.post("/auth/register", json={"username": "coachtester", "password": "secret123"})
     return r.json()["access_token"]
+
+
+def _parse_sse(text: str) -> dict:
+    """把 SSE 文本聚合成 {reply, actions, ok}。"""
+    reply = ""
+    actions = []
+    ok = True
+    for frame in text.split("\n\n"):
+        lines = [l for l in frame.split("\n") if l.startswith("data:")]
+        if not lines:
+            continue
+        ev = json.loads(lines[0][5:].strip())
+        if ev["type"] == "delta":
+            reply += ev["text"]
+        elif ev["type"] == "action":
+            actions.append(ev["text"])
+        elif ev["type"] == "done":
+            ok = ev["ok"]
+    return {"reply": reply, "actions": actions, "ok": ok}
 
 
 def test_chat_requires_auth(client: TestClient):
@@ -21,7 +45,7 @@ def test_chat_returns_reply(client: TestClient):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
-    d = r.json()
+    d = _parse_sse(r.text)
     assert d["ok"] is True
     # fake 模型返回固定前缀；说明链路（鉴权→上下文→推理）跑通
     assert "fake-reason" in d["reply"]
@@ -41,4 +65,5 @@ def test_chat_accepts_history(client: TestClient):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
-    assert r.json()["ok"] is True
+    d = _parse_sse(r.text)
+    assert d["ok"] is True

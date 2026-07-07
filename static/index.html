@@ -1005,6 +1005,7 @@ function appendChat(role, text, img){
   if(text){ const t=document.createElement('div'); t.textContent=text; b.appendChild(t); }
   div.appendChild(av); div.appendChild(b); box.appendChild(div);
   box.scrollTop=box.scrollHeight;
+  return b;  // 返回 bubble 容器，供流式追加文本
 }
 function _appendAction(text){
   const box=document.getElementById('chatBox');
@@ -1045,32 +1046,56 @@ async function doChat(){
   chatHistory.push({role:'user', content: text || '[发送了食物图片]'});
   input.value=''; clearChatImage();
   const btn=document.getElementById('chatSendBtn'); btn.disabled=true;
-  appendChat('bot','教练正在思考…');
+  const bubble=appendChat('bot','教练正在思考…');
+  const box=document.getElementById('chatBox');
+  const body={message:text, history:chatHistory.slice(0,-1)};
+  if(img) body.image_base64=img.base64;
+  // 60 秒超时：防止后端调模型时请求挂死
+  const ctrl=new AbortController();
+  const timer=setTimeout(()=>ctrl.abort(), 60000);
   try{
-    const body={message:text, history:chatHistory.slice(0,-1)};
-    if(img) body.image_base64=img.base64;
-    // 60 秒超时：防止后端调模型时请求挂死
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 60000);
-    const r=await apiPost('/agent/chat', body, ctrl.signal);
+    const r=await fetch(API+'/agent/chat',{
+      method:'POST',
+      headers:{...apiHeaders(),'Content-Type':'application/json'},
+      body:JSON.stringify(body),
+      signal:ctrl.signal
+    });
     clearTimeout(timer);
     if(!handle401(r)){btn.disabled=false;return;}
-    const d=await r.json();
-    _removeLastBotBubble();
-    const reply=(r.ok && d.reply) ? d.reply : (d.reply || '教练暂时没回应，请稍后再试。');
-    appendChat('bot',reply);
-    chatHistory.push({role:'assistant',content:reply});
-    if(Array.isArray(d.actions) && d.actions.length){
-      d.actions.forEach(function(a){ _appendAction(a); });
+    const reader=r.body.getReader();
+    const decoder=new TextDecoder();
+    let buf='', full='', started=false;
+    while(true){
+      const {done,value}=await reader.read();
+      if(done) break;
+      buf += decoder.decode(value,{stream:true});
+      let idx;
+      while((idx=buf.indexOf('\n\n'))>=0){
+        const frame=buf.slice(0,idx); buf=buf.slice(idx+2);
+        const dataLine=frame.split('\n').find(function(l){return l.startsWith('data:');});
+        if(!dataLine) continue;
+        let ev; try{ ev=JSON.parse(dataLine.slice(5).trim()); }catch(_){ continue; }
+        if(ev.type==='delta'){
+          if(!started){ bubble.innerHTML=''; started=true; }
+          bubble.appendChild(document.createTextNode(ev.text));
+          full += ev.text;
+          box.scrollTop=box.scrollHeight;
+        } else if(ev.type==='action'){
+          _appendAction(ev.text);
+        }
+      }
     }
+    if(!started){ bubble.textContent='教练暂时没回应，请稍后再试。'; }
+    chatHistory.push({role:'assistant', content: full || '教练暂时没回应，请稍后再试。'});
   }catch(e){
-    _removeLastBotBubble();
-    let errMsg = e.message || '';
-    if(e.name === 'AbortError' || errMsg.includes('abort')){
-      appendChat('bot','⏱ 响应超时了，教练可能正在思考比较复杂的问题。你可以稍后再试试～');
+    let msg;
+    if(e.name==='AbortError' || (e.message||'').includes('abort')){
+      msg='⏱ 响应超时了，教练可能正在思考比较复杂的问题。你可以稍后再试试～';
     } else {
-      appendChat('bot','出错了：'+errMsg);
+      msg='出错了：'+e.message;
     }
+    if(!started){ bubble.textContent=msg; }
+    else { bubble.appendChild(document.createElement('div')).textContent='\n'+msg; }
   }
   btn.disabled=false;
 }
