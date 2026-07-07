@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     # 基础
     app_name: str = "健身AI Agent"
     database_url: str = "sqlite+aiosqlite:///./fitness.db"
+    upload_dir: str = "data/uploads"  # 上传图片落盘目录（不入库）
 
     # 鉴权
     jwt_secret: str = "dev-secret-change-me"

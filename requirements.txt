@@ -8,4 +8,5 @@ python-jose[cryptography]
 passlib
 pytest
 httpx
-# 注：openai 在 M2 接真实视觉 provider 时再加，M1 用 fake 不需要
+langgraph  # M2 引入 Agent 状态机（vision→guardrail→finalize）
+python-multipart  # 文件上传（UploadFile）依赖

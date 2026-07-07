@@ -6,11 +6,13 @@
 """
 import asyncio
 import os
+import shutil
 import pytest
 
 # 必须在导入 app 之前设置测试环境
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_fitness.db"
 os.environ["JWT_SECRET"] = "test-secret"
+os.environ["UPLOAD_DIR"] = "./test_uploads"  # 测试上传目录，避免污染 data/
 
 from app.config import get_settings
 
@@ -47,3 +49,4 @@ def client():
     with TestClient(app) as c:
         yield c
     _drop_all()
+    shutil.rmtree("test_uploads", ignore_errors=True)
