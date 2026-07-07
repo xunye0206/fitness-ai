@@ -324,15 +324,21 @@ button.ghost:hover { background:#F3F4F6; }
   flex-shrink:0;
 }
 .chat-input-bar input { flex:1; }
-.chat-msg { display:flex; }
-.chat-msg.user { justify-content:flex-end; }
-.chat-msg.bot { justify-content:flex-start; }
+.chat-msg { display:flex; gap:10px; align-items:flex-start; }
+.chat-msg.user { flex-direction:row-reverse; }
+.chat-msg .avatar {
+  width:34px; height:34px; border-radius:50%; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center; font-size:16px;
+  margin-top:2px;
+}
+.chat-msg.bot .avatar { background:linear-gradient(135deg,#10B981,#059669); color:#fff; box-shadow:var(--shadow); }
+.chat-msg.user .avatar { background:#E5E7EB; color:#6B7280; }
 .chat-msg .bubble {
-  max-width:720px; padding:12px 16px; border-radius:16px; font-size:14px;
+  max-width:660px; padding:12px 16px; border-radius:16px; font-size:14px;
   line-height:1.75; white-space:pre-wrap; word-break:break-word;
 }
-.chat-msg.bot .bubble { background:#F3F4F6; color:var(--text); border-bottom-left-radius:4px; }
-.chat-msg.user .bubble { background:var(--accent); color:#fff; border-bottom-right-radius:4px; }
+.chat-msg.bot .bubble { background:#F3F4F6; color:var(--text); border-top-left-radius:4px; }
+.chat-msg.user .bubble { background:var(--accent); color:#fff; border-top-right-radius:4px; }
 
 /* --- Reminder cards --- */
 .reminder-item {
@@ -594,6 +600,7 @@ button.ghost:hover { background:#F3F4F6; }
     <div class="page" id="page-coach" style="display:flex;flex-direction:column;height:100%;padding:0;">
       <div class="chat-messages" id="chatBox">
         <div class="chat-msg bot">
+          <div class="avatar">&#129302;</div>
           <div class="bubble">你好，我是你的 AI 健身教练 💪 今天想聊点什么？比如「今晚想练胸，给我安排一组」或者「中午吃多了怎么办」。</div>
         </div>
       </div>
@@ -962,8 +969,10 @@ function appendChat(role, text){
   const box=document.getElementById('chatBox');
   const div=document.createElement('div');
   div.className='chat-msg '+(role==='user'?'user':'bot');
+  const av=document.createElement('div'); av.className='avatar';
+  av.textContent = (role==='user') ? '🙂' : '🤖';
   const b=document.createElement('div'); b.className='bubble'; b.textContent=text;
-  div.appendChild(b); box.appendChild(div);
+  div.appendChild(av); div.appendChild(b); box.appendChild(div);
   box.scrollTop=box.scrollHeight;
 }
 function _removeLastBotBubble(){
