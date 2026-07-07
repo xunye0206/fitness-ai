@@ -16,8 +16,14 @@ class Settings(BaseSettings):
 
     # 基础
     app_name: str = "健身AI Agent"
-    database_url: str = "sqlite+aiosqlite:///./fitness.db"
+    database_url: str = "sqlite+aiosqlite:///./fitness.db"  # 生产改为 postgresql+asyncpg:// 托管云连接串
     upload_dir: str = "data/uploads"  # 上传图片落盘目录（不入库）
+
+    # Redis（agent 上下文热缓存 / 推送限流计数）。留空 = 不启用，自动降级（不拖主链路）
+    redis_url: str = ""
+
+    # embedding 向量维度（Qwen text-embedding-v3 默认 1024；须与 EMBEDDING_MODEL 维度一致）
+    embedding_dim: int = 1024
 
     # 鉴权
     jwt_secret: str = "dev-secret-change-me"

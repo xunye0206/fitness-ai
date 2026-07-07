@@ -1,7 +1,7 @@
-# 健身 AI Agent · 后端（M1 里程碑）
+# 健身 AI Agent · 后端
 
-M1 交付：后端骨架 + SQLite 存储 + 可插拔 LLM 层（默认 FakeProvider，零 key 跑通）。
-后续 M2 饮食切片 / M3 报告闭环 / M4 推送，将在此基座上叠加。
+M1–M6 已交付：后端骨架 + 可插拔 LLM 层 + 饮食/训练/报告/推送闭环 + 记忆检索层 +
+**生产级存储栈（Postgres + pgvector + Redis，本地/测试自动回退 SQLite）**。
 
 ## 你如何自己验收（不必读代码）
 
@@ -18,7 +18,8 @@ pip install -r requirements.txt
 ```bash
 pytest -q
 ```
-预期：health / auth / llm 路由 共 6 个用例全过，全程不联网、不填 key。
+预期：40 个用例全过（auth / llm / diet / training / report / push / memory / redis），
+全程不联网、不填 key、零基础设施（自动走 SQLite + 无 Redis 回退）。
 
 ### 3. 本地启动看接口
 ```bash
@@ -35,19 +36,30 @@ curl -X POST localhost:8000/auth/login -H 'Content-Type: application/json' \
 curl localhost:8000/auth/me -H 'Authorization: Bearer <access_token>'
 ```
 
+### 4. 生产部署（Postgres + pgvector + Redis）
+```bash
+# 一键起本地全套依赖（Postgres 带 pgvector + Redis）
+docker compose up -d
+# .env 里把 DATABASE_URL 改成 postgresql+asyncpg://...，REDIS_URL 改成 redis://...
+# 安装生产依赖：pip install asyncpg pgvector redis
+```
+`init_db` 会在 Postgres 模式下自动 `CREATE EXTENSION vector` 并建 HNSW 索引，无需手工迁移。
+
 ## 目录角色（对应已定架构）
-- `app/config.py`：读 .env，按用途拆分 LLM 供应商
-- `app/core/`：db（SQLite 会话）、security（JWT/密码）、logging
+- `app/config.py`：读 .env，按用途拆分 LLM 供应商 + 数据库/Redis 连接
+- `app/core/`：db（按 URL 自动选 Postgres/SQLite 会话）、redis（客户端单例+降级）、security（JWT/密码）、logging
 - `app/llm/`：可插拔 LLM 层（base 抽象 / registry 装配 / router 业务入口 / providers fake+openai兼容）
-- `app/modules/auth/`：登录模块（domain 表 / service 逻辑 / api 路由）
-- `app/main.py`：FastAPI 入口，挂载路由 + 启动建表
+- `app/modules/`：auth / diet / training / report / push / memory（各含 domain/service/api）
+- `app/agent/`：LangGraph 状态机 + 护栏 + context（含语义召回与 Redis 热缓存）
+- `app/main.py`：FastAPI 入口，挂载路由 + 启动建表/建扩展
 - `tests/`：镜像模块的冒烟测试（零网络）
 
 ## 关键设计决策
 - **LLM 可插拔**：业务只调 `app.llm.router` 的 `reason/see/embed`，换模型只改 `.env`。
 - **FakeProvider**：无 key 即可跑通链路，开发与 CI 零成本。
 - **不写死供应商**：OpenAI/DeepSeek/Qwen/混元 共用一个兼容客户端。
+- **存储双栈**：生产=Postgres(pgvector 向量)+Redis(缓存/限流)；本地/测试=SQLite 回退 + 无 Redis 降级，业务代码无感。
 - **安全红线**：`.env` 与 `*.db` 已 gitignore，密钥与数据不入库。
 
 ## 下一步
-M2：拍照→视觉估算（带置信度）→用户修正→落库；引入 LangGraph 状态机与护栏。
+上线非代码项：微信支付商户 + 小程序"工具"类目资质（措辞避医疗词）+ 可穿戴同步（二期）。

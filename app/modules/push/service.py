@@ -16,6 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.agent.context import build_context
 from app.agent.guardrails import push_content_safe
+from app.core.redis import rate_incr  # 推送 ≤3/天 限流计数（Redis 缺失自动回退 SQL）
 from app.modules.push.domain import PushMessage
 
 # 每日每用户推送上限（设计稿：每日 ≤3 条）
@@ -74,6 +75,18 @@ async def _already_sent_today(session: AsyncSession, user_id: int, event_type: s
     return int(result.scalar() or 0) > 0
 
 
+async def _today_push_count(session: AsyncSession, user_id: int) -> int:
+    """当日已发（含被拦截）推送数。
+
+    优先用 Redis 计数（INCR，TTL 到当天结束）；Redis 不可用时回退 SQL 表计数。
+    返回的是"本次调用前已记录"的数量（Redis 路径已把本次 +1，故减回）。
+    """
+    redis_n = await rate_incr(f"push:count:{user_id}:{_today_str()}", ttl=86400)
+    if redis_n is not None:
+        return redis_n - 1
+    return await count_today_pushes(session, user_id)
+
+
 async def has_injury_signal(session: AsyncSession, user_id: int) -> bool:
     """伤病信号：近 14 天训练备注出现 疼/伤/痛（护栏依据，非诊断）。"""
     since = datetime.now(timezone.utc) - timedelta(days=14)
@@ -96,8 +109,8 @@ async def dispatch_push(
     body: str | None = None,
 ) -> PushMessage:
     """统一出口：限流 → 内容护栏 → 落库。返回 PushMessage（status=sent/blocked）。"""
-    # 1) 限流
-    sent = await count_today_pushes(session, user_id)
+    # 1) 限流（Redis 计数优先，缺失时回退 SQL）
+    sent = await _today_push_count(session, user_id)
     if sent >= DAILY_PUSH_LIMIT:
         msg = PushMessage(
             user_id=user_id,

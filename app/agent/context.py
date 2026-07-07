@@ -16,6 +16,7 @@ from app.modules.diet.domain import DietEntry
 from app.modules.memory.domain import MemoryEmbedding  # noqa: F401  确保表进入 metadata 被建出
 from app.modules.memory.service import recall as recall_memory
 from app.modules.training.domain import TrainingEntry
+from app.core.redis import cache_get, cache_set  # agent 上下文热缓存（Redis 缺失自动降级）
 
 # 召回窗口天数（默认 7，对应设计稿"近 7 天"）
 DEFAULT_RECALL_DAYS = 7
@@ -33,9 +34,26 @@ async def build_context(
 ) -> str:
     """召回近 days 天饮食+训练，聚合为文本；可选追加语义召回的长期记忆。
 
-    use_semantic=True 时，用本窗口聚合文本作为查询，召回用户跨周/跨月的叙事记忆
-    （wiki 偏好/洞察）。embedding 未启用或失败时自动跳过，不影响主链路。
+    Redis 热缓存：相同 (user, days, semantic) 10 分钟内直接返回缓存，避免每次重算聚合。
+    Redis 缺失/异常时自动跳过缓存，不影响主链路。
     """
+    cache_key = f"ctx:{user_id}:{days}:{int(use_semantic)}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    text = await _build_context_inner(session, user_id, days, use_semantic)
+    await cache_set(cache_key, text, ttl=600)
+    return text
+
+
+async def _build_context_inner(
+    session: AsyncSession,
+    user_id: int,
+    days: int = DEFAULT_RECALL_DAYS,
+    use_semantic: bool = True,
+) -> str:
+    """build_context 的实际聚合逻辑（缓存包裹之外）。"""
     since = _date_n_days_ago(days - 1)  # 含今天共 days 天
     since_dt = datetime.strptime(since, "%Y-%m-%d").replace(tzinfo=timezone.utc)
 

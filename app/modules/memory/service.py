@@ -22,7 +22,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.config import get_settings
 from app.llm.base import LLMResult
-from app.modules.memory.domain import MemoryEmbedding
+from app.modules.memory.domain import MemoryEmbedding, _is_postgres
 
 logger = logging.getLogger("fitness_agent.memory")
 
@@ -48,6 +48,15 @@ def _unpack_vec(b: bytes) -> list[float]:
     if n == 0:
         return []
     return list(struct.unpack("<" + "f" * n, b))
+
+
+def _to_vec(raw) -> list[float]:
+    """把数据库里的 vector 值统一成 list[float]：bytes(打包) 解包，list 直接转。"""
+    if isinstance(raw, (bytes, bytearray)):
+        return _unpack_vec(bytes(raw))
+    if raw is None:
+        return []
+    return [float(x) for x in raw]  # pgvector 返回 list[float]
 
 
 # ---------- 纯函数（易测） ----------
@@ -129,13 +138,15 @@ async def index_wiki(
             )
         )
         for i, (ch, vec) in enumerate(zip(chunks, vectors)):
+            # Postgres+pgvector 直接存 list[float]；SQLite 回退存打包 bytes
+            vec_value = vec if _is_postgres() else _pack_vec(vec)
             session.add(
                 MemoryEmbedding(
                     user_id=user_id,
                     source=source,
                     chunk_index=i,
                     text=ch,
-                    vector=_pack_vec(vec),
+                    vector=vec_value,
                     model=model_name,
                 )
             )
@@ -163,6 +174,25 @@ async def recall(
         return []
     qvec: list[float] = qres.raw["vectors"][0]
 
+    # Postgres + pgvector：DB 端按余弦距离排序取 top-K（HNSW 索引加速，量级大时显著快）
+    if _is_postgres():
+        try:
+            rows = (
+                await session.execute(
+                    select(MemoryEmbedding)
+                    .where(MemoryEmbedding.user_id == user_id)
+                    .order_by(MemoryEmbedding.vector.cosine_distance(qvec))
+                    .limit(k)
+                )
+            ).scalars().all()
+        except Exception:
+            return []
+        return [
+            RecallHit(text=r.text, score=cosine_similarity(qvec, _to_vec(r.vector)), source=r.source)
+            for r in rows
+        ]
+
+    # SQLite 回退：全量取回，Python 算余弦取 top-K
     try:
         rows = (
             await session.execute(

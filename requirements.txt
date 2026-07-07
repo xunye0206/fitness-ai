@@ -13,3 +13,10 @@ python-multipart  # 文件上传（UploadFile）依赖
 apscheduler  # M4 定时推送调度（每日固定 2 条 + 事件巡检 1 条）
 openai  # 真模型适配层 OpenAICompatibleProvider 依赖（reason/vision 走它）；fake 模式不需要
 python-dotenv  # pydantic-settings 读取 .env 必需；未装则 .env 静默忽略、回退默认 fake
+
+# 生产部署（Postgres + pgvector + Redis）—— 本地/测试用 SQLite 回退时无需安装
+# 仅当 DATABASE_URL 指向 postgresql+asyncpg:// 时才需要下面三个
+asyncpg      # Postgres 异步驱动（DATABASE_URL=postgresql+asyncpg://...）
+pgvector     # pgvector 的 SQLAlchemy 类型（memory_embeddings.vector 列 / 余弦召回）
+redis        # Redis 客户端（agent 上下文热缓存 + 推送限流；未装则自动降级为无缓存）
+

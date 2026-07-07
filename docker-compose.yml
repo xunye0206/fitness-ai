@@ -1,0 +1,41 @@
+# 生产依赖栈：Postgres(带 pgvector 扩展) + Redis。
+# 使用：docker compose up -d
+# 起好后，在 .env 设置：
+#   DATABASE_URL=postgresql+asyncpg://fitness:fitness@localhost:5432/fitness
+#   REDIS_URL=redis://localhost:6379/0
+# 并安装生产依赖：pip install asyncpg pgvector redis
+# 注：本地/测试仍可只用 SQLite（不设 DATABASE_URL 即可），无需启动本 compose。
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: fitness_postgres
+    environment:
+      POSTGRES_USER: fitness
+      POSTGRES_PASSWORD: fitness
+      POSTGRES_DB: fitness
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fitness -d fitness"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: fitness_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  redisdata:
