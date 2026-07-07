@@ -13,6 +13,8 @@ from sqlmodel import func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.modules.diet.domain import DietEntry
+from app.modules.memory.domain import MemoryEmbedding  # noqa: F401  确保表进入 metadata 被建出
+from app.modules.memory.service import recall as recall_memory
 from app.modules.training.domain import TrainingEntry
 
 # 召回窗口天数（默认 7，对应设计稿"近 7 天"）
@@ -23,8 +25,17 @@ def _date_n_days_ago(n: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(days=n)).strftime("%Y-%m-%d")
 
 
-async def build_context(session: AsyncSession, user_id: int, days: int = DEFAULT_RECALL_DAYS) -> str:
-    """召回近 days 天饮食+训练，聚合为文本。失败降级返回提示而非抛异常。"""
+async def build_context(
+    session: AsyncSession,
+    user_id: int,
+    days: int = DEFAULT_RECALL_DAYS,
+    use_semantic: bool = True,
+) -> str:
+    """召回近 days 天饮食+训练，聚合为文本；可选追加语义召回的长期记忆。
+
+    use_semantic=True 时，用本窗口聚合文本作为查询，召回用户跨周/跨月的叙事记忆
+    （wiki 偏好/洞察）。embedding 未启用或失败时自动跳过，不影响主链路。
+    """
     since = _date_n_days_ago(days - 1)  # 含今天共 days 天
     since_dt = datetime.strptime(since, "%Y-%m-%d").replace(tzinfo=timezone.utc)
 
@@ -86,5 +97,17 @@ async def build_context(session: AsyncSession, user_id: int, days: int = DEFAULT
         lines.append(f"  项目分布：{type_str}")
     else:
         lines.append("- 训练：近窗口内暂无记录")
+
+    # M5：语义召回长期记忆（跨周/跨月），embedding 不可用时 recall 返回 []，自动跳过
+    if use_semantic:
+        try:
+            hits = await recall_memory(session, user_id, "\n".join(lines), k=5)
+        except Exception:
+            hits = []
+        if hits:
+            lines.append("")
+            lines.append("长期记忆（语义召回，仅作参考）：")
+            for h in hits:
+                lines.append(f"- {h.text}（相关度 {h.score:.2f}）")
 
     return "\n".join(lines)

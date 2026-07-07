@@ -22,6 +22,9 @@ def _openai_provider(use: str, settings) -> LLMProvider:
     name = getattr(settings, f"{use}_provider")
     api_key = getattr(settings, f"{name}_api_key", "")
     base_url = getattr(settings, f"{name}_base_url", "")
+    # embedding 可单独指定端点（如 MaaS 不支持 /embeddings 时指向 DashScope 主站）
+    if use == "embedding":
+        base_url = getattr(settings, "embedding_base_url", "") or base_url
     default_model = getattr(settings, f"{name}_model", "")
     # 允许按用途单独覆盖模型（如 reasoning 用文本模型、vision 用 VL 模型）
     override_model = getattr(settings, f"{use}_model", "")

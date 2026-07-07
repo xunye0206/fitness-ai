@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     vision_model: str = ""
     embedding_model: str = ""
 
+    # embedding 专用端点（可选）。默认复用 embedding_provider 的 base_url；
+    # 若你的 MaaS 端点不支持 /embeddings，可单独指向 DashScope 主站 compatible-mode 端点。
+    embedding_base_url: str = ""
+
     # 各供应商密钥与端点（仅在 provider != fake 时使用）
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com/v1"

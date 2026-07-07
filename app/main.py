@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.core.db import init_db
 from app.core.logging import logger
+from app.modules.memory import domain as _memory_domain  # noqa: F401  确保记忆表被建出
 from app.modules.auth.api import router as auth_router
 from app.modules.diet.api import router as diet_router
 from app.modules.training.api import router as training_router
