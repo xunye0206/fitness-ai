@@ -416,7 +416,7 @@ function showResult(id,text,type){
 
 function switchTab(name){
   document.querySelectorAll('.tab').forEach(function(t,i){ t.classList.toggle('active',['diet','training','report','push'][i]===name); });
-  document.querySelectorAll('.panel').forEach(function(p,i){ p.classList.toggle('hidden',['diet','training','report','push'][i]!==name; });
+  document.querySelectorAll('.panel').forEach(function(p,i){ p.classList.toggle('hidden',['diet','training','report','push'][i]!==name); });
 }
 
 // 启动时检查
