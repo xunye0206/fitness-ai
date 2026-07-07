@@ -54,3 +54,16 @@ def client():
         yield c
     _drop_all()
     shutil.rmtree("test_uploads", ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_mem_cache():
+    """每个测试后清空进程内内存缓存，避免跨测试污染限流/上下文 key。
+
+    生产环境单进程内内存缓存应跨请求共享（这是缓存的意义）；仅在测试中
+    隔离，保证每个用例从干净状态开始。
+    """
+    yield
+    from app.core import redis as _redis
+
+    _redis._mem_cache._store.clear()

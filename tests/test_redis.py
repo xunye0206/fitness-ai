@@ -77,14 +77,19 @@ def test_rate_incr_increments_and_resets(fake_redis):
     asyncio.run(run())
 
 
-def test_no_redis_degrades_to_none(monkeypatch):
-    """REDIS 不可用时（get_redis 返回 None）辅助函数安全降级。"""
+def test_no_redis_degrades_to_in_memory_cache(monkeypatch):
+    """REDIS 不可用时（get_redis 返回 None）自动降级为进程内内存缓存，仍能命中。"""
     monkeypatch.setattr(redis_mod, "get_redis", lambda: None)
 
     async def run():
-        assert await cache_get("x") is None
-        assert await rate_incr("x") is None
-        await cache_set("x", "y")  # 不应抛异常
-        await cache_delete("x")
+        # 无 Redis 时降级到内存缓存：写入后可命中，限流计数也能工作
+        # 注意：cache 与 rate 用不同 key，避免 value 类型冲突（cache 存字符串，rate 存数字）
+        assert await cache_get("xc") is None         # 尚未写入
+        await cache_set("xc", "y", ttl=60)           # 不应抛异常
+        assert await cache_get("xc") == "y"          # 内存命中（不再是 None）
+        assert await rate_incr("xr") == 1            # 限流计数返回有效值
+        assert await rate_incr("xr") == 2
+        await cache_delete("xc")
+        assert await cache_get("xc") is None
 
     asyncio.run(run())
