@@ -7,6 +7,7 @@
 响应采用 SSE 流式输出：教练回复逐字推送给前端，避免「沉默等待」的体感卡顿。
 """
 import json
+import logging
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends
@@ -23,6 +24,8 @@ from app.agent.context import build_context
 from app.modules.auth.api import get_current_user
 from app.modules.auth.domain import User
 from app.modules.diet.domain import DietEntry
+
+logger = logging.getLogger("fitness_agent.agent")
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -53,13 +56,18 @@ async def _handle_image(
     payload: ChatIn, session: AsyncSession, user_id: int
 ) -> str:
     """处理用户发来的食物图片：走视觉管线建饮食记录，返回给教练点评的注记。"""
+    b64_len = len(payload.image_base64 or "")
+    logger.info("用户 %d 发来图片，base64 长度 %d 字符", user_id, b64_len)
     try:
         rec = await run_diet_recognition(user_id, payload.image_base64)
-    except Exception:
+    except Exception as exc:
+        logger.warning("视觉识别异常：%s", exc, exc_info=True)
         return "（用户发来一张食物图片，但视觉识别调用失败）"
     est = rec.get("recognition")
     verdict = rec.get("verdict")
     if est is None:
+        log_lines = rec.get("log", [])
+        logger.warning("视觉识别未返回有效结果，graph日志=%s", log_lines)
         return "（用户发来一张食物图片，但视觉识别未成功，建议用户稍后手动补充）"
     needs_confirm = bool(verdict and verdict.needs_confirmation)
     entry = DietEntry(
@@ -99,14 +107,6 @@ async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> Stream
     except Exception:
         ctx = "（暂无可用的近期数据）"
 
-    # 图片联动：有图先建饮食记录，并把结果注记进用户消息
-    image_note = ""
-    if payload.image_base64:
-        image_note = await _handle_image(payload, session, current.id)
-
-    user_text = (payload.message or "").strip()
-    user_content = (user_text + "\n" + image_note).strip()
-
     system = COACH_SYSTEM_PROMPT + "\n\n【用户近期数据】\n" + (ctx or "（暂无记录）")
     messages: list[Message] = [Message(role="system", content=system)]
     # 2) 带入最近若干轮历史（避免上下文过长）
@@ -115,7 +115,8 @@ async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> Stream
         content = h.get("content")
         if role in ("user", "assistant") and content:
             messages.append(Message(role=role, content=content))
-    messages.append(Message(role="user", content=user_content))
+    # 注意：用户消息（含图片处理结果）在 event_gen 内部追加，
+    # 因为图片识别是耗时操作，需要在 SSE 流中先推送状态再拼接消息。
 
     def _sse(obj: dict) -> str:
         return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
@@ -123,6 +124,23 @@ async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> Stream
     async def event_gen():
         actions: list[str] = []
         try:
+            # 2.5) 图片处理（在流式推理之前，同步完成；通过 SSE 通知前端状态）
+            if payload.image_base64:
+                yield _sse({"type": "status", "text": "正在识别图片…"})
+                image_note = await _handle_image(payload, session, current.id)
+                # 如果视觉识别成功，通知前端
+                if "但视觉" not in image_note and "调用失败" not in image_note:
+                    yield _sse({"type": "status", "text": "✅ 图片已识别"})
+                else:
+                    yield _sse({"type": "status", "text": "⚠️ 图片识别未成功，已转为文字记录模式"})
+            else:
+                image_note = ""
+
+            user_text = (payload.message or "").strip()
+            user_content = (user_text + "\n" + image_note).strip()
+
+            messages.append(Message(role="user", content=user_content))
+
             # 3) 流式推理，同时检测工具调用（首 token 立即推送）
             tool_calls = None
             async for ev in reason_stream_with_tools(messages, TOOLS):

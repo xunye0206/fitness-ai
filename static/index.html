@@ -1082,6 +1082,9 @@ async function doChat(){
           box.scrollTop=box.scrollHeight;
         } else if(ev.type==='action'){
           _appendAction(ev.text);
+        } else if(ev.type==='status' && !started){
+          // 图片处理等状态更新（在首条 delta 之前显示）
+          bubble.textContent=ev.text;
         }
       }
     }
