@@ -13,6 +13,10 @@ import pytest
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_fitness.db"
 os.environ["JWT_SECRET"] = "test-secret"
 os.environ["UPLOAD_DIR"] = "./test_uploads"  # 测试上传目录，避免污染 data/
+# 测试强制走 fake 模型，隔离用户本地 .env 里的真模型配置（env 优先级高于 .env）
+os.environ["REASONING_PROVIDER"] = "fake"
+os.environ["VISION_PROVIDER"] = "fake"
+os.environ["EMBEDDING_PROVIDER"] = ""
 
 from app.config import get_settings
 

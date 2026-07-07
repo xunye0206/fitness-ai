@@ -11,3 +11,5 @@ httpx
 langgraph  # M2 引入 Agent 状态机（vision→guardrail→finalize）
 python-multipart  # 文件上传（UploadFile）依赖
 apscheduler  # M4 定时推送调度（每日固定 2 条 + 事件巡检 1 条）
+openai  # 真模型适配层 OpenAICompatibleProvider 依赖（reason/vision 走它）；fake 模式不需要
+python-dotenv  # pydantic-settings 读取 .env 必需；未装则 .env 静默忽略、回退默认 fake

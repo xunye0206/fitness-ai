@@ -2,7 +2,9 @@
 import base64
 
 from app.agent.guardrails import Guardrails
+from app.agent.graph import _extract_json, parse_estimate
 from app.agent.schemas import FoodEstimate
+from app.llm.base import LLMResult
 
 # 1x1 透明 PNG，合法图片，足以走完上传链路
 PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
@@ -60,3 +62,31 @@ def test_guardrail_low_confidence_needs_confirmation():
 def test_guardrail_none_blocked():
     v = Guardrails().evaluate(None)
     assert v.allowed is False
+
+
+# ---- 真模型 JSON 解析（不联网，验证 qwen 自然语言→结构化估算的解析链路）----
+def test_parse_estimate_from_fenced_json():
+    text = '```json\n{"name":"苹果","calories":95,"protein_g":0.5,"carbs_g":25,"fat_g":0.3,"confidence":0.9,"note":"中等苹果"}\n```'
+    est = parse_estimate(LLMResult(text=text, ok=True))
+    assert est is not None
+    assert est.name == "苹果"
+    assert est.calories == 95.0
+    assert est.confidence == 0.9
+
+
+def test_parse_estimate_from_inline_json():
+    text = '识别结果：{"name":"鸡胸肉","calories":165,"protein_g":31,"carbs_g":0,"fat_g":3.6,"confidence":0.85,"note":"100g"} 仅供参考'
+    est = parse_estimate(LLMResult(text=text, ok=True))
+    assert est is not None
+    assert est.name == "鸡胸肉"
+    assert est.protein_g == 31.0
+
+
+def test_parse_estimate_no_json_returns_none():
+    est = parse_estimate(LLMResult(text="这张图片不是食物，无法识别", ok=True))
+    assert est is None
+
+
+def test_extract_json_handles_garbage():
+    assert _extract_json("") is None
+    assert _extract_json("no json here") is None

@@ -4,9 +4,27 @@
 懒导入 openai，未装依赖且未启用该 provider 时不报错（M1 默认 fake 不触发）。
 失败返回结构化错误，不抛异常，交由调用方降级。
 """
+import base64
 from typing import Any, Optional
 
 from app.llm.base import Capability, LLMProvider, LLMResult, Message
+
+
+def _detect_mime(b64: str) -> str:
+    """按文件头魔数推断图片 MIME（避免把 png/webp 标成 image/jpeg 被拒）。"""
+    try:
+        head = base64.b64decode(b64[:24])
+    except Exception:
+        return "image/jpeg"
+    if head.startswith(b"\x89PNG"):
+        return "image/png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head.startswith(b"RIFF") and b"WEBP" in head:
+        return "image/webp"
+    if head.startswith(b"GIF8"):
+        return "image/gif"
+    return "image/jpeg"
 
 
 class OpenAICompatibleProvider(LLMProvider):
@@ -53,6 +71,7 @@ class OpenAICompatibleProvider(LLMProvider):
     async def see(self, image_base64: str, prompt: str) -> LLMResult:
         if Capability.VISION not in self.capabilities:
             return LLMResult(text="", ok=False, error="provider 不支持 VISION")
+        mime = _detect_mime(image_base64)
         try:
             client = self._client()
             resp = await client.chat.completions.create(
@@ -65,7 +84,7 @@ class OpenAICompatibleProvider(LLMProvider):
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/jpeg;base64,{image_base64}"
+                                    "url": f"data:{mime};base64,{image_base64}"
                                 },
                             },
                         ],

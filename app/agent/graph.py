@@ -4,6 +4,9 @@
 - 护栏在 finalize 之前的前置节点执行（护栏前置拦截）。
 - recursion_limit 充当 max_steps，防止状态机死循环。
 """
+import json
+import re
+
 from langgraph.graph import END, START, StateGraph
 
 from app.agent.guardrails import Guardrails
@@ -14,17 +17,52 @@ from app.llm.router import see
 
 VISION_PROMPT = (
     "请识别这张食物图片，估算其热量(kcal)与宏量营养素"
-    "(蛋白质/碳水/脂肪, 单位g)，并给出置信度(0-1)与一句话说明。"
+    "(蛋白质/碳水/脂肪, 单位g)、置信度(0-1)，并给一句说明。"
+    "只返回一个 JSON 对象，不要任何额外文字，字段如下："
+    '{"name":"食物名","calories":0,"protein_g":0,"carbs_g":0,"fat_g":0,"confidence":0,"note":"一句话说明"}'
 )
 
 _guardrails = Guardrails()
 
 
+def _extract_json(text: str):
+    """从模型文本里稳健抽取第一个 JSON 对象（兼容 ```json 围栏与前后杂文）。"""
+    if not text:
+        return None
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except Exception:
+            pass
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        try:
+            return json.loads(text[start : end + 1])
+        except Exception:
+            pass
+    return None
+
+
 def parse_estimate(result: LLMResult) -> FoodEstimate | None:
-    """把 LLM 返回解析成结构化估算；优先用 raw.estimate，失败降级返回 None。"""
+    """把 LLM 返回解析成结构化估算；优先用 raw.estimate，其次从文本抽取 JSON。"""
     if result.raw and isinstance(result.raw.get("estimate"), dict):
         try:
             return FoodEstimate(**result.raw["estimate"])
+        except Exception:
+            return None
+    obj = _extract_json(result.text) if isinstance(result.text, str) else None
+    if isinstance(obj, dict):
+        try:
+            return FoodEstimate(
+                name=str(obj.get("name", "")),
+                calories=float(obj.get("calories") or 0),
+                protein_g=float(obj.get("protein_g") or 0),
+                carbs_g=float(obj.get("carbs_g") or 0),
+                fat_g=float(obj.get("fat_g") or 0),
+                confidence=float(obj.get("confidence") or 0),
+                note=str(obj.get("note", "") or ""),
+            )
         except Exception:
             return None
     return None
