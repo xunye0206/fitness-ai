@@ -1098,6 +1098,8 @@ async function doChat(){
         }
       }
     }
+    // 流结束后：将完整回复通过 renderMd 重新渲染为富文本（Markdown → HTML）
+    if(started && full){ bubble.innerHTML=renderMd(full); }
     if(!started){ bubble.textContent='教练暂时没回应，请稍后再试。'; }
     chatHistory.push({role:'assistant', content: full || '教练暂时没回应，请稍后再试。'});
   }catch(e){
@@ -1154,7 +1156,17 @@ async function _loadList(url,elId,fmtFn){
 function _fmtDiet(x,isHead){
   if(isHead) return '<th>时间</th><th>餐次</th><th>食物</th><th>热量</th><th>蛋白</th><th>碳水</th><th>脂肪</th><th>状态</th>';
   const mealMap={breakfast:'早餐',lunch:'午餐',afternoon_tea:'下午茶',dinner:'晚餐',midnight_snack:'宵夜',other:'其他'};
-  const meal=mealMap[x.meal_type]||x.meal_type||'其他';
+  // 旧数据 meal_type 为 'other' 时，前端按记录时间动态推断餐次
+  let meal=mealMap[x.meal_type]||x.meal_type||'其他';
+  if(meal==='其他' && x.created_at){
+    var h=new Date(x.created_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit'});
+    h=parseInt(h,10);
+    if(h>=5 && h<11) meal='早餐';
+    else if(h>=11 && h<15) meal='午餐';
+    else if(h>=15 && h<18) meal='下午茶';
+    else if(h>=18 && h<22) meal='晚餐';
+    else meal='宵夜';
+  }
   const t=x.created_at?new Date(x.created_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'-';
   return '<tr><td>'+t+'</td><td>'+meal+'</td><td>'+esc(x.name)+'</td><td>'+x.calories+'</td><td>'+x.protein_g+'g</td><td>'+x.carbs_g+'g</td><td>'+x.fat_g+'g</td>'
     +'<td>'+(x.status==='confirmed'?'<span class="tag green">确认</span>':'<span class="tag amber">'+esc(x.status)+'</span>')+'</td></tr>';
