@@ -17,6 +17,7 @@ from app.agent.context import build_context
 from app.config import settings
 from app.llm.base import Message
 from app.llm.router import reason
+from app.modules.memory.service import index_wiki  # 把报告写入向量库（跨周期记忆）
 from app.modules.report.domain import DailyReport
 
 # 固定系统前缀（Prefix Cache 友好，争取缓存命中）
@@ -96,6 +97,18 @@ async def generate_report(
     session.add(report)
     await session.commit()
     await session.refresh(report)
+
+    # 把报告摘要写入向量库，作为跨周期的长期记忆（下次生成报告时 recall 召回）。
+    # 失败优雅降级（embedding 不可用/落库异常），绝不影响报告主链路。
+    try:
+        await index_wiki(
+            session, user_id,
+            source=f"report:{report_date}",
+            text=f"{summary}\n{advice}",
+        )
+    except Exception:
+        pass
+
     return report
 
 
