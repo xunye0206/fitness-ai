@@ -4,6 +4,8 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.core.db import init_db
@@ -37,6 +39,14 @@ app.include_router(diet_router)
 app.include_router(training_router)
 app.include_router(report_router)
 app.include_router(push_router)
+
+# 验证页（静态 HTML）
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/")
+async def index():
+    return FileResponse("static/index.html")
 
 
 @app.get("/health")

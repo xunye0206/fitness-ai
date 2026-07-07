@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>健身AI Agent - 验证页</title>
+<style>
+:root {
+  --bg: #F8F9FA;
+  --card-bg: #FFFFFF;
+  --text: #2C2C2A;
+  --text-secondary: #5F5E5A;
+  --border: #D3D1C7;
+  --accent: #378ADD;
+  --accent-light: #E6F1FB;
+  --success: #1D9E75;
+  --success-light: #E1F5EE;
+  --danger: #E24B4A;
+  --danger-light: #FCEBEB;
+  --amber: #BA7517;
+  --amber-light: #FAEEDA;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 20px; }
+.container { max-width: 800px; margin: 0 auto; }
+
+h1 { font-size: 20px; font-weight:600; text-align:center; padding: 16px 0; color: var(--text); }
+.status-bar { display:flex; align-items:center; justify-content:center; gap:8px; padding:10px; border-radius:8px; font-size:13px; margin-bottom:20px; }
+.status-bar.ok { background:var(--success-light); color:var(--success); border:1px solid #5DCAA5; }
+.status-bar.err { background:var(--danger-light); color:var(--danger); border:1px solid #F09595; }
+
+.card { background:var(--card-bg); border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:16px; }
+.card h2 { font-size:15px; font-weight:600; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+.card h2 .icon { width:28px; height:28px; border-radius:7px; display:inline-flex; align-items:center; justify-content:center; font-size:14px; color:#fff; flex-shrink:0; }
+.card h2 .icon.blue { background:var(--accent); }
+.card h2 .icon.green { background:var(--success); }
+.card h2 .icon.amber { background:var(--amber); }
+.card h2 .icon.purple { background:#7F77DD; }
+
+label { font-size:13px; font-weight:500; color:var(--text-secondary); display:block; margin-top:12px; margin-bottom:4px; }
+input[type="text"], input[type="number"], select, textarea { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:8px; font-size:13px; outline:none; transition:border-color .15s; background:#fff; }
+input:focus, select:focus, textarea:focus { border-color:var(--accent); }
+
+button { padding:9px 18px; border-radius:8px; font-size:13px; font-weight:500; cursor:pointer; border:1px solid transparent; transition:all .15s; }
+button.primary { background:var(--accent); color:#fff; }
+button.primary:hover { opacity:.88; }
+button.primary:disabled { opacity:.45; cursor:not-allowed; }
+button.secondary { background:var(--bg); color:var(--text); border-color:var(--border); }
+button.secondary:hover { background:var(--border); }
+
+.row { display:flex; gap:10px; flex-wrap:wrap; }
+.row > * { flex:1; min-width:120px; }
+
+.file-upload { border:2px dashed var(--border); border-radius:10px; padding:24px; text-align:center; cursor:pointer; transition:border-color .15s; position:relative; overflow:hidden; margin-top:4px; }
+.file-upload:hover { border-color:var(--accent); background:var(--accent-light); }
+.file-upload img { max-width:100%; max-height:200px; object-fit:contain; display:none; margin:0 auto; }
+.file-upload.has-img img { display:block; }
+.file-upload p { font-size:13px; color:var(--text-secondary); }
+.file-upload p strong { color:var(--accent); }
+
+.result-box { margin-top:14px; padding:14px; border-radius:8px; font-size:13px; line-height:1.7; white-space:pre-wrap; word-break:break-word; display:none; }
+.result-box.success { display:block; background:var(--success-light); color:#085041; border:1px solid #5DCAA5; }
+.result-box.error { display:block; background:var(--danger-light); color:#791F1F; border:1px solid #F09595; }
+.result-box.info { display:block; background:var(--accent-light); color:#0C447C; border:1px solid #85B7EB; }
+
+.list-table { width:100%; border-collapse:collapse; margin-top:10px; font-size:12px; }
+.list-table th { text-align:left; padding:6px 8px; background:var(--bg); border-bottom:1px solid var(--border); font-weight:500; color:var(--text-secondary); font-size:12px; }
+.list-table td { padding:6px 8px; border-bottom:1px solid rgba(211,209,199,.5); vertical-align:top; }
+.list-table tr:last-child td { border:none; }
+
+.tag { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:500; }
+.tag.green { background:var(--success-light); color:#085041; }
+.tag.blue { background:var(--accent-light); color:#0C447C; }
+.tag.amber { background:var(--amber-light); color:#854F0B; }
+.tag.gray { background:var(--bg); color:var(--text-secondary); }
+
+.login-area { display:flex; align-items:flex-end; gap:10px; margin-bottom:0; }
+.login-area button { white-space:nowrap; }
+
+.tabs { display:flex; gap:0; border-bottom:2px solid var(--border); margin-bottom:16px; }
+.tab { padding:10px 18px; font-size:13px; font-weight:500; color:var(--text-secondary); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; transition:all .15s; }
+.tab:hover { color:var(--text); }
+.tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+
+.hidden { display:none !important; }
+
+.metric-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:12px; }
+.metric { background:var(--bg); border-radius:8px; padding:12px; text-align:center; }
+.metric .val { font-size:22px; font-weight:600; color:var(--text); }
+.metric .lbl { font-size:11px; color:var(--text-secondary); margin-top:2px; }
+
+@media(max-width:600px) { .metric-grid { grid-template-columns:repeat(2,1fr); } .row { flex-direction:column; } }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>健身 AI Agent - 验证页</h1>
+
+<!-- 连接状态 -->
+<div id="connStatus" class="status-bar err">未连接服务器</div>
+
+<!-- 登录区 -->
+<div class="card">
+  <h2><span class="icon blue">&#128100;</span> 登录 / 注册</h2>
+  <div class="login-area">
+    <div style="flex:1"><label>用户名</label><input id="username" value="demo" placeholder="输入用户名"></div>
+    <div style="flex:1"><label>密码</label><input id="password" type="password" value="123456" placeholder="输入密码" style="margin-top:0"></div>
+    <div style="display:flex; align-items:flex-end;"><button class="primary" onclick="doLogin()" id="loginBtn">登录 / 注册</button></div>
+  </div>
+  <div id="loginResult" class="result-box"></div>
+</div>
+
+<!-- Tab 切换 -->
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('diet')">拍照识食</div>
+  <div class="tab" onclick="switchTab('training')">训练记录</div>
+  <div class="tab" onclick="switchTab('report')">日报报告</div>
+  <div class="tab" onclick="switchTab('push')">消息推送</div>
+</div>
+
+<!-- 饮食 -->
+<div id="panel-diet" class="panel">
+  <div class="card">
+    <h2><span class="icon green">&#127869;</span> 上传食物照片，AI 识别热量与营养</h2>
+    <div class="file-upload" id="dropZone" onclick="document.getElementById('foodImg').click()">
+      <img id="previewImg" alt="">
+      <p id="uploadHint"><strong>+ 点击选择图片</strong> 或拖拽到此处<br><span style="font-size:11px;color:var(--text-secondary)">支持 jpg / png / webp</span></p>
+    </div>
+    <input type="file" id="foodImg" accept="image/*" style="display:none" onchange="previewFile(this)">
+    <div style="margin-top:14px;display:flex;gap:10px;align-items:flex-end">
+      <div style="flex:1"><label>备注（可选）</label><input id="dietNote" placeholder="如：早餐、加餐"></div>
+      <button class="primary" id="recognizeBtn" onclick="doRecognize()" disabled>识别食物</button>
+    </div>
+    <div id="recognizeResult" class="result-box"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon blue">&#128203;</span> 饮食记录</h2>
+    <button class="secondary" onclick="loadDietList()">刷新列表</button>
+    <div id="dietList" style="margin-top:10px;font-size:13px;color:var(--text-secondary)">点击刷新加载</div>
+  </div>
+</div>
+
+<!-- 训练 -->
+<div id="panel-training" class="panel hidden">
+  <div class="card">
+    <h2><span class="icon amber">&#127939;</span> 录入一次训练</h2>
+    <div class="row">
+      <div><label>运动类型</label><select id="exType"><option value="跑步">跑步</option><option value="骑行">骑行</option><option value="游泳">游泳</option><option value="力量训练">力量训练</option><option value="跳绳">跳绳</option><option value="瑜伽/拉伸">瑜伽/拉伸</option><option value="篮球">篮球</option><option value="其他">其他</option></select></div>
+      <div><label>时长（分钟）</label><input type="number" id="duration" value="30" min="1"></div>
+      <div><label>强度</label><select id="intensity"><option value="low">轻松</option><option value="medium" selected>中等</option><option value="high">激烈</option></select></div>
+    </div>
+    <div class="row" style="margin-top:0">
+      <div><label>消耗热量（大卡）</label><input type="number" id="calBurned" value="250" step="0.1"></div>
+      <div><label>日期（留空=今天）</label><input type="date" id="trainDate"></div>
+    </div>
+    <div><label>备注（可选）</label><textarea id="trainNotes" rows="2" placeholder="如：感觉不错、膝盖有点酸..."></textarea></div>
+    <div style="margin-top:14px"><button class="primary" onclick="doAddTraining()">保存训练记录</button></div>
+    <div id="trainingResult" class="result-box"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon blue">&#128203;</span> 训练历史</h2>
+    <button class="secondary" onclick="loadTrainingList()">刷新列表</button>
+    <div id="trainingList" style="margin-top:10px;font-size:13px;color:var(--text-secondary)">点击刷新加载</div>
+  </div>
+</div>
+
+<!-- 报告 -->
+<div id="panel-report" class="panel hidden">
+  <div class="card">
+    <h2><span class="icon purple">&#128240;</span> AI 健身日报（基于近 7 天数据生成）</h2>
+    <div class="row">
+      <div><label>召回天数</label><select id="reportDays"><option value="3">最近 3 天</option><option value="7" selected>最近 7 天</option><option value="14">最近 14 天</option></select></div>
+      <div style="display:flex;align-items:flex-end"><button class="primary" onclick="doGenerateReport()">生成日报</button></div>
+    </div>
+    <div id="reportResult" class="result-box"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon blue">&#128203;</span> 报告历史</h2>
+    <button class="secondary" onclick="loadReportList()">刷新列表</button>
+    <div id="reportList" style="margin-top:10px;font-size:13px;color:var(--text-secondary)">点击刷新加载</div>
+  </div>
+</div>
+
+<!-- 推送 -->
+<div id="panel-push" class="panel hidden">
+  <div class="card">
+    <h2><span class="icon green">&#128276;</span> 手动触发推送（测试用）</h2>
+    <div class="row">
+      <div><label>推送类型</label><select id="pushType"><option value="morning_nudge">晨间提醒 (08:00)</option><option value="evening_review">晚间回顾 (21:00)</option><option value="abandonment_alert">放弃预警</option></select></div>
+      <div style="display:flex;align-items:flex-end"><button class="primary" onclick="doTriggerPush()">发送</button></div>
+    </div>
+    <div id="pushResult" class="result-box"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon amber">&#128270;</span> 事件巡检</h2>
+    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">检测连续无记录的用户并发出放弃预警</p>
+    <button class="secondary" onclick="doEventScan()">执行巡检</button>
+    <div id="scanResult" class="result-box"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="icon blue">&#128203;</span> 推送记录</h2>
+    <button class="secondary" onclick="loadPushList()">刷新列表</button>
+    <div id="pushList" style="margin-top:10px;font-size:13px;color:var(--text-secondary)">点击刷新加载</div>
+  </div>
+</div>
+
+</div>
+
+<script>
+const API = 'http://127.0.0.1:8000';
+let token = localStorage.getItem('token') || '';
+
+// 检查连接
+async function checkHealth() {
+  try {
+    const r = await fetch(API+'/health');
+    const s = document.getElementById('connStatus');
+    if(r.ok){ s.className='status-bar ok'; s.innerHTML='\u2714 服务器已连接 ('+API+')'; return true; }
+  }catch(e){}
+  const s = document.getElementById('connStatus');
+  s.className='status-bar err'; s.innerHTML='\u2718 无法连接服务器，请先启动：<code>uvicorn app.main:app --port 8000</code>';
+  return false;
+}
+
+// 登录/注册
+async function doLogin() {
+  const u = document.getElementById('username').value.trim();
+  const p = document.getElementById('password').value;
+  if(!u || !p) { showResult('loginResult','请填写用户名和密码','error'); return; }
+  const btn = document.getElementById('loginBtn'); btn.disabled=true;
+  showResult('loginResult','','info');
+  try {
+    let r = await fetch(API+'/auth/register', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:u,password:p})
+    });
+    // 已注册过就登录
+    if(r.status===400){
+      r = await fetch(API+'/auth/login', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({username:u,password:p})
+      });
+    }
+    const d = await r.json();
+    if(d.access_token){
+      token = d.access_token; localStorage.setItem('token',token);
+      showResult('loginResult','登录成功！Token: '+token.substring(0,25)+'...','success');
+    } else {
+      showResult('loginResult',JSON.stringify(d,null,2),'error');
+    }
+  } catch(e) {
+    showResult('loginResult','请求失败：'+e.message,'error');
+  }
+  btn.disabled=false;
+}
+
+function apiHeaders(){ return {'Authorization':'Bearer '+token}; }
+
+// 图片预览
+function previewFile(input){
+  const f = input.files[0]; if(!f) return;
+  const preview = document.getElementById('previewImg');
+  const hint = document.getElementById('uploadHint');
+  const btn = document.getElementById('recognizeBtn');
+  const reader = new FileReader();
+  reader.onload=function(e){ preview.src=e.target.result; preview.parentElement.classList.add('has-img'); hint.style.display='none'; btn.disabled=false; };
+  reader.readAsDataURL(f);
+}
+
+// 识图
+async function doRecognize(){
+  const f = document.getElementById('foodImg').files[0];
+  if(!f){ alert('请先选择一张图片'); return; }
+  const btn=document.getElementById('recognizeBtn'); btn.disabled=true;
+  const fd=new FormData(); fd.append('image',f);
+  showResult('recognizeResult','正在识别中...','info');
+  try{
+    const r=await fetch(API+'/diet/recognize',{method:'POST',headers:apiHeaders(),body:fd});
+    const d=await r.json();
+    if(!r.ok){ showResult('recognizeResult','错误 ('+r.status+'): '+JSON.stringify(d),'error'); btn.disabled=false; return; }
+    const e=d.estimate;
+    let html='<b>\u2714 识别完成！entry_id='+d.entry_id+'</b>\n\n';
+    if(e){
+      html+='<b>食物：</b>'+e.name+'\n';
+      html+='<b>热量：</b>'+e.calories+' 大卡\n\n';
+      html+='<div class="metric-grid">';
+      html+='<div class="metric"><div class="val">'+e.protein_g+'g</div><div class="lbl">蛋白质</div></div>';
+      html+='<div class="metric"><div class="val">'+e.carbs_g+'g</div><div class="lbl">碳水</div></div>';
+      html+='<div class="metric"><div class="val">'+e.fat_g+'g</div><div class="lbl">脂肪</div></div>';
+      html+='<div class="metric"><div class="val">'+Math.round(e.confidence*100)+'%</div><div class="lbl">置信度</div></div>';
+      html+='</div>';
+      if(d.needs_confirmation)html+='\n\u26A0 低置信度，建议人工确认';
+      if(d.guardrail_reasons.length)html+='\n\u26A0 护栏提示：'+d.guardrail_reasons.join(', ');
+    } else {
+      html+='模型返回了空结果（可能使用了 fake 模式）。';
+    }
+    showResult('recognizeResult',html,r.ok?'success':'error');
+  } catch(e){ showResult('recognizeResult','失败：'+e.message,'error'); }
+  btn.disabled=false;
+}
+
+// 训练录入
+async function doAddTraining(){
+  const body={
+    exercise_type:document.getElementById('exType').value,
+    duration_min:parseInt(document.getElementById('duration').value),
+    intensity:document.getElementById('intensity').value,
+    calories_burned:parseFloat(document.getElementById('calBurned').value),
+    notes:document.getElementById('trainNotes').value,
+  };
+  const dt=document.getElementById('trainDate').value;
+  if(dt) body.date=dt;
+  showResult('trainingResult','','info');
+  try{
+    const r=await fetch(API+'/training',{method:'POST',headers:{...apiHeaders(),'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json();
+    showResult('trainingResult',(r.ok?'\u2714 ':'\u2718 ')+JSON.stringify(d,null,2),r.ok?'success':'error');
+  }catch(e){ showResult('trainingResult','失败：'+e.message,'error'); }
+}
+
+// 报告生成
+async function doGenerateReport(){
+  const days=document.getElementById('reportDays').value;
+  showResult('reportResult','正在生成日报（召回近'+days+'天数据）...','info');
+  try{
+    const r=await fetch(API+'/report/generate',{method:'POST',headers:{...apiHeaders(),'Content-Type':'application/json'},body:JSON.stringify({days:+days})});
+    const d=await r.json();
+    if(r.ok){
+      let h='<b>\u2714 报告已生成（id='+d.id+', 模型：'+d.model+'）</b>\n\n';
+      h+='<b>【小结】</b>\n'+d.summary+'\n\n<b>【建议】</b>\n'+d.advice;
+      showResult('reportResult',h,'success');
+    } else { showResult('reportResult','错误('+r.status+'): '+JSON.stringify(d),'error'); }
+  }catch(e){ showResult('reportResult','失败：'+e.message,'error'); }
+}
+
+// 触发推送
+async function doTriggerPush(){
+  const et=document.getElementById('pushType').value;
+  showResult('pushResult','','info');
+  try{
+    const r=await fetch(API+'/push/trigger',{method:'POST',headers:{...apiHeaders(),'Content-Type':'application/json'},body:JSON.stringify({event_type:et})});
+    const d=await r.json();
+    if(r.ok){
+      let s='<b>\u2714 推送已触发</b>\n\n';
+      s+='<b>标题：</b>'+d.title+'\n<b>内容：</b>'+d.body+'\n<b>状态：</b>';
+      s+=d.status==='sent'?'<span class="tag green">已发送</span>':d.status==='blocked'?'<span class="tag gray">被拦截</span>':'<span class="tag blue">'+d.status+'</span>';
+      if(d.blocked_reason)s+='\n<b>原因：</b>'+d.blocked_reason;
+      showResult('pushResult',s,d.status==='sent'?'success':'info');
+    } else { showResult('pushResult','错误('+r.status+'): '+JSON.stringify(d),'error'); }
+  }catch(e){ showResult('pushResult','失败：'+e.message,'error'); }
+}
+
+// 巡检
+async function doEventScan(){
+  showResult('scanResult','正在巡检...','info');
+  try{
+    const r=await fetch(API+'/push/scan',{method:'POST',headers:{...apiHeaders(),'Content-Type':'application/json'},body:'{}'});
+    const d=await r.json();
+    if(r.ok){
+      showResult('scanResult','<b>巡检完成</b>\n扫描 '+d.scanned+' 条记录，触发 '+d.fired+' 条推送','success');
+    } else { showResult('scanResult','错误('+r.status+'): '+JSON.stringify(d),'error'); }
+  }catch(e){ showResult('scanResult','失败：'+e.message,'error'); }
+}
+
+// 列表加载
+async function loadDietList(){ await _loadList('/diet','dietList',_fmtDiet); }
+async function loadTrainingList(){ await _loadList('/training','trainingList',_fmtTraining); }
+async function loadReportList(){ await _loadList('/report','reportList',_fmtReport); }
+async function loadPushList(){ await _loadList('/push','pushList',_fmtPush); }
+
+async function _loadList(url,elId,fmtFn){
+  const el=document.getElementById(elId);
+  el.innerHTML='加载中...';
+  try{
+    const r=await fetch(url,{headers:apiHeaders()});
+    const arr=await r.json();
+    if(!Array.isArray(arr)||arr.length===0){ el.innerHTML='<p style="color:var(--text-secondary)">暂无记录</p>'; return; }
+    el.innerHTML='<table class="list-table"><thead><tr>'+fmtFn(null,true)+'</tr></thead><tbody>'+arr.map(fmtFn).join('')+'</tbody></table>';
+  }catch(e){ el.innerHTML='<p style="color:var(--danger)">加载失败：'+e.message+'</p>'; }
+}
+
+function _fmtDiet(x,isHead){
+  if(isHead)return '<th>时间</th><th>食物</th><th>热量</th><th>蛋白</th><th>碳水</th><th>脂肪</th><th>状态</th>';
+  return '<tr><td>'+new Date(x.created_at).toLocaleString().slice(0,-3)+'</td>'
+    +'<td>'+esc(x.name)+'</td><td>'+x.calories+'</td><td>'+x.protein_g+'g</td><td>'+x.carbs_g+'g</td><td>'+x.fat_g+'g</td>'
+    +'<td>'+(x.status==='confirmed'?'<span class="tag green">确认</span>':'<span class="tag amber">'+x.status+'</span>')+'</td></tr>';
+}
+function _fmtTraining(x,isHead){
+  if(isHead)return '<th>日期</th><th>运动</th><th>时长</th><th>强度</th><th>消耗</th><th>备注</th>';
+  return '<tr><td>'+x.date+'</td><td>'+esc(x.exercise_type)+'</td><td>'+x.duration_min+'分</td>'
+    +'<td><span class="tag '+(x.intensity==='high'?'amber':x.intensity==='low'?'green':'blue')+'">'+{low:'轻松',medium:'中等',high:'激烈'}[x.intensity]||x.intensity+'</span></td>'
+    +'<td>'+x.calories_burned+'大卡</td><td>'+esc(x.notes||'-')+'</td></tr>';
+}
+function _fmtReport(x,isHead){
+  if(isHead)return '<th>日期</th><th>小结</th><th>建议</th><th>模型</th>';
+  return '<tr><td>'+x.report_date+'</td><td>'+esc((x.summary||'').substring(0,60))+'</td><td>'+esc((x.advice||'').substring(0,60))+'</td><td><span class="tag gray">'+x.model+'</span></td></tr>';
+}
+function _fmtPush(x,isHead){
+  if(isHead)return '<th>时间</th><th>类型</th><th>标题</th><th>状态</th>';
+  return '<tr><td>'+new Date(x.created_at).toLocaleString().slice(0,-3)+'</td><td>'+esc(x.event_type)+'</td><td>'+esc(x.title)+'</td>'
+    +'<td>'+(x.status==='sent'?'<span class="tag green">已发</span>':x.status==='blocked'?'<span class="tag gray">拦截</span>':'<span class="tag blue">'+x.status+'</span>')+'</td></tr>';
+}
+
+function esc(s){ if(!s)return''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function showResult(id,text,type){
+  const el=document.getElementById(id);
+  el.style.display='block'; el.className='result-box '+(type||'info'); el.innerHTML=text;
+}
+
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach(function(t,i){ t.classList.toggle('active',['diet','training','report','push'][i]===name); });
+  document.querySelectorAll('.panel').forEach(function(p,i){ p.classList.toggle('hidden',['diet','training','report','push'][i]!==name; });
+}
+
+// 启动时检查
+checkHealth();
+setInterval(checkHealth,15000);
+if(token) showResult('loginResult','已保存登录态，可直接使用功能','info');
+</script>
+</body>
+</html>
