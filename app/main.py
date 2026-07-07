@@ -18,6 +18,7 @@ from app.modules.training.api import router as training_router
 from app.modules.report.api import router as report_router
 from app.modules.push.api import router as push_router
 from app.modules.push.scheduler import register_scheduler, shutdown_scheduler
+from app.agent.api import router as agent_router
 
 logger = logging.getLogger("fitness_agent")
 
@@ -51,6 +52,7 @@ app.include_router(diet_router)
 app.include_router(training_router)
 app.include_router(report_router)
 app.include_router(push_router)
+app.include_router(agent_router)
 
 # 验证页（静态 HTML）
 app.mount("/static", StaticFiles(directory="static"), name="static")
