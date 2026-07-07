@@ -5,9 +5,10 @@
 失败返回结构化错误，不抛异常，交由调用方降级。
 """
 import base64
+import json
 from typing import Any, Optional
 
-from app.llm.base import Capability, LLMProvider, LLMResult, Message
+from app.llm.base import Capability, LLMProvider, LLMResult, Message, ToolCall
 
 
 def _detect_mime(b64: str) -> str:
@@ -55,18 +56,60 @@ class OpenAICompatibleProvider(LLMProvider):
             api_key=self.api_key, base_url=self.base_url, timeout=self.timeout
         )
 
-    async def reason(self, messages: list[Message]) -> LLMResult:
+    async def reason(
+        self,
+        messages: list[Message],
+        tools: Optional[list[dict]] = None,
+        tool_choice: str = "auto",
+    ) -> LLMResult:
         if Capability.TEXT not in self.capabilities:
             return LLMResult(text="", ok=False, error="provider 不支持 TEXT")
         try:
             client = self._client()
-            resp = await client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": m.role, "content": m.content} for m in messages],
-            )
-            return LLMResult(text=resp.choices[0].message.content or "", ok=True)
+            payload: dict[str, Any] = {
+                "model": self.model,
+                "messages": [_msg_to_dict(m) for m in messages],
+            }
+            if tools:
+                payload["tools"] = tools
+                payload["tool_choice"] = tool_choice
+            resp = await client.chat.completions.create(**payload)
+            msg = resp.choices[0].message
+            tool_calls: list[ToolCall] = []
+            if getattr(msg, "tool_calls", None):
+                for tc in msg.tool_calls:
+                    try:
+                        args = json.loads(tc.function.arguments or "{}")
+                    except Exception:
+                        args = {}
+                    tool_calls.append(
+                        ToolCall(id=tc.id, name=tc.function.name, arguments=args)
+                    )
+            return LLMResult(text=msg.content or "", ok=True, tool_calls=tool_calls)
         except Exception as exc:  # 降级：结构化错误，不抛出
             return LLMResult(text="", ok=False, error=str(exc))
+
+
+def _msg_to_dict(m: Message) -> dict:
+    """把 Message 序列化为 OpenAI 消息格式；自动带上 tool_calls / tool 角色字段。"""
+    d: dict[str, Any] = {"role": m.role, "content": m.content or ""}
+    if m.tool_calls:
+        d["tool_calls"] = [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": tc.name,
+                    "arguments": json.dumps(tc.arguments, ensure_ascii=False),
+                },
+            }
+            for tc in m.tool_calls
+        ]
+    if m.tool_call_id:
+        d["tool_call_id"] = m.tool_call_id
+    if m.name:
+        d["name"] = m.name
+    return d
 
     async def see(self, image_base64: str, prompt: str) -> LLMResult:
         if Capability.VISION not in self.capabilities:

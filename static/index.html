@@ -324,6 +324,25 @@ button.ghost:hover { background:#F3F4F6; }
   flex-shrink:0;
 }
 .chat-input-bar input { flex:1; }
+.chat-input-bar .icon-btn {
+  width:40px; height:40px; flex-shrink:0; border:1px solid var(--border);
+  background:#fff; border-radius:10px; cursor:pointer; font-size:18px; color:var(--text2);
+  display:flex; align-items:center; justify-content:center; transition:background .15s;
+}
+.chat-input-bar .icon-btn:hover { background:#F3F4F6; color:var(--accent); }
+.chat-thumb {
+  position:relative; align-self:flex-start; margin:8px 20px 0; max-width:120px;
+}
+.chat-thumb img { width:100%; border-radius:8px; border:1px solid var(--border); display:block; }
+.chat-thumb-x {
+  position:absolute; top:-6px; right:-6px; width:18px; height:18px; border-radius:50%;
+  background:var(--danger); color:#fff; font-size:11px; line-height:18px; text-align:center;
+  cursor:pointer; box-shadow:var(--shadow);
+}
+.chat-action {
+  align-self:center; max-width:80%; text-align:center; font-size:12px; color:var(--text2);
+  background:#ECFDF5; border:1px solid #A7F3D0; border-radius:999px; padding:4px 12px; margin:2px 0;
+}
 .chat-msg { display:flex; gap:10px; align-items:flex-start; }
 .chat-msg.user { flex-direction:row-reverse; }
 .chat-msg .avatar {
@@ -339,6 +358,7 @@ button.ghost:hover { background:#F3F4F6; }
 }
 .chat-msg.bot .bubble { background:#F3F4F6; color:var(--text); border-top-left-radius:4px; }
 .chat-msg.user .bubble { background:var(--accent); color:#fff; border-top-right-radius:4px; }
+.chat-bubble-img { max-width:200px; border-radius:8px; margin-bottom:6px; display:block; }
 
 /* --- Reminder cards --- */
 .reminder-item {
@@ -604,8 +624,14 @@ button.ghost:hover { background:#F3F4F6; }
           <div class="bubble">你好，我是你的 AI 健身教练 💪 今天想聊点什么？比如「今晚想练胸，给我安排一组」或者「中午吃多了怎么办」。</div>
         </div>
       </div>
+      <div class="chat-thumb" id="chatThumb" style="display:none;">
+        <img id="chatThumbImg" alt="预览">
+        <span class="chat-thumb-x" onclick="clearChatImage()">&#10005;</span>
+      </div>
       <div class="chat-input-bar">
-        <input type="text" id="chatInput" placeholder="输入你想问教练的话…" onkeydown="if(event.key==='Enter')doChat()">
+        <button class="icon-btn" id="chatAttachBtn" title="发送食物图片" onclick="document.getElementById('chatFile').click()">&#128247;</button>
+        <input type="file" id="chatFile" accept="image/*" style="display:none" onchange="onChatImage(this)">
+        <input type="text" id="chatInput" placeholder="输入你想问教练的话…（可附食物图片让教练记录饮食）" onkeydown="if(event.key==='Enter')doChat()">
         <button class="primary" id="chatSendBtn" onclick="requireAuth(doChat)">发送</button>
       </div>
       <div id="chatResult" class="result-box" style="position:absolute;bottom:64px;left:16px;right:16px;z-index:5;"></div>
@@ -964,16 +990,28 @@ async function doGenerateReport(){
 
 // ---------- Coach: Chat ----------
 const chatHistory = [];  // [{role:'user'|'assistant', content}]
+let pendingChatImage = null;  // {base64, dataUrl}
 
-function appendChat(role, text){
+function appendChat(role, text, img){
   const box=document.getElementById('chatBox');
   const div=document.createElement('div');
   div.className='chat-msg '+(role==='user'?'user':'bot');
   const av=document.createElement('div'); av.className='avatar';
   av.textContent = (role==='user') ? '🙂' : '🤖';
-  const b=document.createElement('div'); b.className='bubble'; b.textContent=text;
+  const b=document.createElement('div'); b.className='bubble';
+  if(img){
+    const im=document.createElement('img'); im.src=img; im.className='chat-bubble-img';
+    b.appendChild(im);
+  }
+  if(text){ const t=document.createElement('div'); t.textContent=text; b.appendChild(t); }
   div.appendChild(av); div.appendChild(b); box.appendChild(div);
   box.scrollTop=box.scrollHeight;
+}
+function _appendAction(text){
+  const box=document.getElementById('chatBox');
+  const div=document.createElement('div'); div.className='chat-action';
+  div.textContent='✅ '+text;
+  box.appendChild(div); box.scrollTop=box.scrollHeight;
 }
 function _removeLastBotBubble(){
   const box=document.getElementById('chatBox');
@@ -981,23 +1019,47 @@ function _removeLastBotBubble(){
   if(bots.length) bots[bots.length-1].remove();
 }
 
+function onChatImage(input){
+  const file=input.files && input.files[0];
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    const dataUrl=e.target.result;
+    pendingChatImage={ base64: dataUrl.split(',')[1], dataUrl };
+    document.getElementById('chatThumbImg').src=dataUrl;
+    document.getElementById('chatThumb').style.display='block';
+  };
+  reader.readAsDataURL(file);
+}
+function clearChatImage(){
+  pendingChatImage=null;
+  document.getElementById('chatThumb').style.display='none';
+  document.getElementById('chatFile').value='';
+}
+
 async function doChat(){
   const input=document.getElementById('chatInput');
   const text=input.value.trim();
-  if(!text)return;
-  appendChat('user',text);
-  chatHistory.push({role:'user',content:text});
-  input.value='';
+  if(!text && !pendingChatImage) return;
+  const img=pendingChatImage;
+  appendChat('user', text, img?img.dataUrl:null);
+  chatHistory.push({role:'user', content: text || '[发送了食物图片]'});
+  input.value=''; clearChatImage();
   const btn=document.getElementById('chatSendBtn'); btn.disabled=true;
   appendChat('bot','教练正在思考…');
   try{
-    const r=await apiPost('/agent/chat',{message:text, history:chatHistory.slice(0,-1)});
+    const body={message:text, history:chatHistory.slice(0,-1)};
+    if(img) body.image_base64=img.base64;
+    const r=await apiPost('/agent/chat', body);
     if(!handle401(r)){btn.disabled=false;return;}
     const d=await r.json();
     _removeLastBotBubble();
     const reply=(r.ok && d.reply) ? d.reply : (d.reply || '教练暂时没回应，请稍后再试。');
     appendChat('bot',reply);
     chatHistory.push({role:'assistant',content:reply});
+    if(Array.isArray(d.actions) && d.actions.length){
+      d.actions.forEach(function(a){ _appendAction(a); });
+    }
   }catch(e){
     _removeLastBotBubble();
     appendChat('bot','出错了：'+e.message);

@@ -15,9 +15,20 @@ class Capability(str, Enum):
 
 
 @dataclass
+class ToolCall:
+    """模型发起的一次工具调用（函数调用）。arguments 为已解析的 dict。"""
+    id: str
+    name: str
+    arguments: dict
+
+
+@dataclass
 class Message:
-    role: str  # "system" | "user" | "assistant"
+    role: str  # "system" | "user" | "assistant" | "tool"
     content: str
+    tool_calls: list = field(default_factory=list)  # 仅 assistant 消息：list[ToolCall]
+    tool_call_id: Optional[str] = None  # 仅 tool 结果消息：对应 ToolCall.id
+    name: Optional[str] = None  # 仅 tool 结果消息：被调用的函数名
 
 
 @dataclass
@@ -28,6 +39,7 @@ class LLMResult:
     ok: bool = True
     error: Optional[str] = None
     raw: Optional[dict[str, Any]] = None
+    tool_calls: list = field(default_factory=list)  # list[ToolCall]，函数调用模式下非空
 
 
 class LLMProvider:

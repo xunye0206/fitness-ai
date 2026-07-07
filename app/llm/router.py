@@ -2,6 +2,8 @@
 
 换供应商只改 .env，业务代码此文件以下零改动。
 """
+from typing import Optional
+
 from app.llm.base import LLMResult, Message
 from app.llm.registry import get
 
@@ -9,6 +11,22 @@ from app.llm.registry import get
 async def reason(messages: list[Message]) -> LLMResult:
     """文本推理 / 报告生成。走 reasoning_provider。"""
     return await get("reasoning").reason(messages)
+
+
+async def reason_with_tools(
+    messages: list[Message],
+    tools: list[dict],
+    tool_choice: str = "auto",
+) -> LLMResult:
+    """带函数调用的文本推理（agent 工具循环用）。走 reasoning_provider。
+
+    provider 不支持 tools 时由 provider 内部降级返回 ok=False，调用方自行兜底。
+    """
+    provider = get("reasoning")
+    try:
+        return await provider.reason(messages, tools=tools, tool_choice=tool_choice)
+    except Exception as exc:
+        return LLMResult(text="", ok=False, error=str(exc))
 
 
 async def see(image_base64: str, prompt: str) -> LLMResult:

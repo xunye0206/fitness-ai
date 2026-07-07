@@ -9,7 +9,7 @@ class FakeProvider(LLMProvider):
     name = "fake"
     capabilities = {Capability.TEXT, Capability.VISION, Capability.EMBEDDING}
 
-    async def reason(self, messages: list[Message]) -> LLMResult:
+    async def reason(self, messages: list[Message], tools=None, tool_choice="auto") -> LLMResult:
         last = messages[-1].content if messages else ""
         return LLMResult(text=f"[fake-reason] 收到指令：{last[:50]}")
 
