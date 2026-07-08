@@ -162,3 +162,49 @@ def test_chat_profile_recall_injection_does_not_break(client: TestClient, monkey
     assert d["ok"] is True
     # 画像注记是 system 上下文，不应原样出现在对用户的最终回复里
     assert "讨厌西兰花" not in d["reply"]
+
+
+def _fake_image_b64() -> str:
+    # 1x1 透明 PNG；fake provider 不解码图像内容，只看提示词决定返回训练/饮食形状
+    return "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMCAYAAAGAAAAAASUVORK5CYII="
+
+
+def _parse_sse_events(text: str) -> list[dict]:
+    """把 SSE 文本拆成所有事件帧列表（用于校验特定类型事件是否存在）。"""
+    events = []
+    for frame in text.split("\n\n"):
+        lines = [l for l in frame.split("\n") if l.startswith("data:")]
+        if not lines:
+            continue
+        events.append(json.loads(lines[0][5:].strip()))
+    return events
+
+
+def test_chat_training_image_returns_recognition_card(client: TestClient):
+    """M11-2：聊天发训练截图，识别后返回 training_recognition 事件（供前端确认卡，不落库）。"""
+    token = _token(client)
+    r = client.post(
+        "/agent/chat",
+        json={"message": "", "image_base64": _fake_image_b64(), "image_mode": "training"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    events = _parse_sse_events(r.text)
+    train_ev = next((e for e in events if e.get("type") == "training_recognition"), None)
+    assert train_ev is not None, "应推送 training_recognition 事件"
+    est = (train_ev.get("recognition") or {}).get("estimate")
+    assert est, "应返回非空的训练估算"
+    assert "exercise_type" in est
+
+
+def test_chat_diet_image_default_mode_ok(client: TestClient):
+    """回归：默认 diet 模式仍走饮食识别、聊天正常完成（向后兼容旧行为）。"""
+    token = _token(client)
+    r = client.post(
+        "/agent/chat",
+        json={"message": "", "image_base64": _fake_image_b64(), "image_mode": "diet"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    d = _parse_sse(r.text)
+    assert d["ok"] is True

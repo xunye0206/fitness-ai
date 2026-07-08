@@ -656,9 +656,13 @@ button.ghost:hover { background:#F3F4F6; }
         <span class="chat-thumb-x" onclick="clearChatImage()">&#10005;</span>
       </div>
       <div class="chat-input-bar">
-        <button class="icon-btn" id="chatAttachBtn" title="发送食物图片" onclick="document.getElementById('chatFile').click()">&#128247;</button>
+        <button class="icon-btn" id="chatAttachBtn" title="发送图片（饮食/训练）" onclick="document.getElementById('chatFile').click()">&#128247;</button>
+        <select id="chatImgMode" class="chat-mode-select" title="图片类型：饮食=让教练记录饮食，训练=识别训练截图后确认保存" style="max-width:62px;font-size:12px;padding:4px 2px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text1)">
+          <option value="diet">饮食</option>
+          <option value="training">训练</option>
+        </select>
         <input type="file" id="chatFile" accept="image/*" style="display:none" onchange="onChatImage(this)">
-        <input type="text" id="chatInput" placeholder="输入你想问教练的话…（可附食物图片让教练记录饮食）" onkeydown="if(event.key==='Enter')doChat()">
+        <input type="text" id="chatInput" placeholder="输入你想问教练的话…（可附图片：饮食让教练记录，训练截图识别后确认保存）" onkeydown="if(event.key==='Enter')doChat()">
         <button class="primary" id="chatSendBtn" onclick="requireAuth(doChat)">发送</button>
       </div>
       <div id="chatResult" class="result-box" style="position:absolute;bottom:64px;left:16px;right:16px;z-index:5;"></div>
@@ -992,7 +996,10 @@ function previewTrainFile(input){
 }
 
 // 根据识别结果生成可编辑确认表单（用户改完再保存）
-function _trainingConfirmForm(e, meta){
+// confirmOnclick / discardOnclick 可重载：训练页用 trainRecognizeResult，聊天卡用 chat 卡片容器
+function _trainingConfirmForm(e, meta, confirmOnclick, discardOnclick){
+  confirmOnclick = confirmOnclick || 'confirmTrainingFromRecognize()';
+  discardOnclick = discardOnclick || "document.getElementById('trainRecognizeResult').innerHTML=''";
   const im={low:'轻松',medium:'中等',high:'激烈'};
   const exOpts=['跑步','骑行','游泳','力量训练','跳绳','瑜伽/拉伸','篮球','其他'];
   let exSel=''; exOpts.forEach(o=>{ exSel+='<option value="'+o+'"'+(o===e.exercise_type?' selected':'')+'>'+o+'</option>'; });
@@ -1021,8 +1028,8 @@ function _trainingConfirmForm(e, meta){
   h+='</div>';
   h+='<div class="mt-s"><label>备注（可选）</label><textarea id="rec_notes" rows="2" placeholder="如：状态不错">'+esc(e.note||'')+'</textarea></div>';
   h+='</div>';
-  h+='\n<button class="primary mt-s" onclick="confirmTrainingFromRecognize()">确认保存</button> ';
-  h+='<button class="secondary mt-s" onclick="document.getElementById(\'trainRecognizeResult\').innerHTML=\'\'">放弃</button>';
+  h+='\n<button class="primary mt-s" onclick="'+confirmOnclick+'">确认保存</button> ';
+  h+='<button class="secondary mt-s" onclick="'+discardOnclick+'">放弃</button>';
   return h;
 }
 
@@ -1185,6 +1192,7 @@ async function doChat(){
   const box=document.getElementById('chatBox');
   const body={message:text, history:chatHistory.slice(0,-1)};
   if(img) body.image_base64=img.base64;
+  body.image_mode=document.getElementById('chatImgMode').value||'diet';
   // 60 秒超时：防止后端调模型时请求挂死
   const ctrl=new AbortController();
   const timer=setTimeout(()=>ctrl.abort(), 60000);
@@ -1217,6 +1225,9 @@ async function doChat(){
           box.scrollTop=box.scrollHeight;
         } else if(ev.type==='action'){
           _appendAction(ev.text);
+        } else if(ev.type==='training_recognition'){
+          // 聊天里发的训练截图被识别：渲染确认卡片，确认才入库
+          showChatTrainingCard(ev.recognition);
         } else if(ev.type==='status' && !started){
           // 图片处理等状态更新（在首条 delta 之前显示）
           bubble.textContent=ev.text;
@@ -1238,6 +1249,53 @@ async function doChat(){
     else { bubble.appendChild(document.createElement('div')).textContent='\n'+msg; }
   }
   btn.disabled=false;
+}
+
+// ---------- Chat: Training image recognition card ----------
+// 聊天里发的训练截图被识别后，在对话流中渲染可编辑确认卡片（确认才入库）
+function showChatTrainingCard(rec){
+  const e=rec.estimate;
+  const box=document.getElementById('chatBox');
+  const msg=document.createElement('div');
+  msg.className='chat-msg bot';
+  const discard="this.closest('.chat-msg').remove()";
+  if(!e){
+    msg.innerHTML='<div class="avatar">&#128681;</div><div class="bubble">模型返回了空结果（可能使用了 fake 模式）。可去训练页手动录入。</div>';
+    box.appendChild(msg); box.scrollTop=box.scrollHeight; return;
+  }
+  msg.innerHTML='<div class="avatar">&#128681;</div><div class="bubble" id="chatTrainCard">'
+    + _trainingConfirmForm(e, rec, 'confirmTrainingFromChat()', discard) + '</div>';
+  box.appendChild(msg);
+  box.scrollTop=box.scrollHeight;
+}
+
+// 聊天卡确认保存：复用与训练页相同的 rec_* 字段，写库后更新卡片
+async function confirmTrainingFromChat(){
+  const body={
+    exercise_type:document.getElementById('rec_exType').value,
+    duration_min:+document.getElementById('rec_duration').value||0,
+    intensity:document.getElementById('rec_intensity').value,
+    calories_burned:+document.getElementById('rec_cal').value||0,
+    distance_km:+document.getElementById('rec_dist').value||0,
+    avg_hr:+document.getElementById('rec_hr').value||0,
+    sets:+document.getElementById('rec_sets').value||0,
+    reps:+document.getElementById('rec_reps').value||0,
+    pace:document.getElementById('rec_pace').value.trim(),
+    notes:document.getElementById('rec_notes').value.trim(),
+  };
+  const dt=document.getElementById('rec_date').value;
+  if(dt) body.date=dt;
+  const card=document.getElementById('chatTrainCard');
+  card.className='result-box show info'; card.innerHTML='正在保存…';
+  try{
+    const r=await apiPost('/training',body);
+    if(!handle401(r))return;
+    const d=await r.json();
+    if(r.ok){
+      card.innerHTML='\u2714 已保存：'+esc(body.exercise_type)+' · '+body.duration_min+'分钟'+(body.distance_km?(' · '+body.distance_km+'km'):'');
+      loadTrainingList();
+    } else { card.innerHTML='保存失败：'+(d.detail||'未知错误'); }
+  }catch(e){ card.innerHTML='失败：'+e.message; }
 }
 
 // ---------- Reminders: Agent 主动推送 ----------

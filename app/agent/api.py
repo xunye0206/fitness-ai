@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.agent.graph import run_diet_recognition
+from app.agent.graph_training import run_training_recognition
 from app.agent.tools import TOOLS, execute_tool
 from app.core.db import get_session
 from app.llm.base import Message
@@ -58,26 +59,42 @@ COACH_SYSTEM_PROMPT = """你是「健身AI」的专属 AI 健身教练，是用�
 class ChatIn(BaseModel):
     message: str
     history: list[dict] = []  # 前端维护的对话历史：[{"role":"user|assistant","content":"..."}]
-    image_base64: Optional[str] = None  # 可选：用户发来的食物图片（base64，不含 data: 前缀）
+    image_base64: Optional[str] = None  # 可选：用户发来的图片（base64，不含 data: 前缀）
+    image_mode: Optional[str] = "diet"  # 图片类型：diet=食物(默认) / training=训练截图
 
 
 async def _handle_image(
     payload: ChatIn, session: AsyncSession, user_id: int
-) -> str:
-    """处理用户发来的食物图片：走视觉管线建饮食记录，返回给教练点评的注记。"""
+) -> dict:
+    """处理用户发的图片，按 image_mode 分流，返回 {note, status, training?}。
+
+    - diet 模式：走视觉管线自动建饮食记录，note 描述已记饮食（向后兼容旧行为）。
+    - training 模式：走训练识别，不落库，返回训练结构化结果供前端展示确认卡。
+    """
+    mode = (payload.image_mode or "diet").lower()
+    if mode == "training":
+        return await _handle_training_image(payload, user_id)
+    return await _handle_diet_image(payload, session, user_id)
+
+
+async def _handle_diet_image(payload: ChatIn, session: AsyncSession, user_id: int) -> dict:
+    """饮食图片：自动建记录，返回给教练点评的注记。"""
     b64_len = len(payload.image_base64 or "")
-    logger.info("用户 %d 发来图片，base64 长度 %d 字符", user_id, b64_len)
+    logger.info("用户 %d 发来饮食图片，base64 长度 %d 字符", user_id, b64_len)
     try:
         rec = await run_diet_recognition(user_id, payload.image_base64)
     except Exception as exc:
         logger.warning("视觉识别异常：%s", exc, exc_info=True)
-        return "（用户发来一张食物图片，但视觉识别调用失败）"
+        return {"note": "（用户发来一张食物图片，但视觉识别调用失败）", "status": "⚠️ 图片识别未成功"}
     est = rec.get("recognition")
     verdict = rec.get("verdict")
     if est is None:
         log_lines = rec.get("log", [])
         logger.warning("视觉识别未返回有效结果，graph日志=%s", log_lines)
-        return "（用户发来一张食物图片，但视觉识别未成功，建议用户稍后手动补充）"
+        return {
+            "note": "（用户发来一张食物图片，但视觉识别未成功，建议用户稍后手动补充）",
+            "status": "⚠️ 图片识别未成功，已转为文字记录模式",
+        }
     needs_confirm = bool(verdict and verdict.needs_confirmation)
     entry = DietEntry(
         user_id=user_id,
@@ -99,7 +116,37 @@ async def _handle_image(
         f"约 {est.calories:.0f} kcal，蛋白 {est.protein_g:.0f}g / "
         f"碳水 {est.carbs_g:.0f}g / 脂肪 {est.fat_g:.0f}g）"
     )
-    return note
+    return {"note": note, "status": "✅ 图片已识别"}
+
+
+async def _handle_training_image(payload: ChatIn, user_id: int) -> dict:
+    """训练截图：识别但不落库，返回结构化结果供前端确认卡。"""
+    b64_len = len(payload.image_base64 or "")
+    logger.info("用户 %d 发来训练截图，base64 长度 %d 字符", user_id, b64_len)
+    try:
+        rec = await run_training_recognition(user_id, payload.image_base64)
+    except Exception as exc:
+        logger.warning("训练视觉识别异常：%s", exc, exc_info=True)
+        return {"note": "（用户发来一张训练截图，但视觉识别调用失败）", "status": "⚠️ 图片识别未成功"}
+    est = rec.get("recognition")
+    verdict = rec.get("verdict")
+    if est is None:
+        logger.warning("训练识别未返回有效结果，graph日志=%s", rec.get("log", []))
+        return {
+            "note": "（用户发来一张训练截图，但识别未成功，建议用户稍后手动补充或去训练页录入）",
+            "status": "⚠️ 训练截图识别未成功",
+        }
+    needs_confirm = bool(verdict and verdict.needs_confirmation)
+    recognition = {
+        "estimate": est.model_dump(),
+        "needs_confirmation": needs_confirm,
+        "guardrail_reasons": verdict.reasons if verdict else [],
+    }
+    note = (
+        f"（用户发来一张训练截图，已识别为训练数据：{est.exercise_type} "
+        f"约 {est.duration_min:.0f} 分钟，已生成确认卡片，等待用户确认保存）"
+    )
+    return {"note": note, "status": "✅ 训练截图已识别", "training": recognition}
 
 
 @router.post("/chat")
@@ -137,12 +184,13 @@ async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> Stream
             # 2.5) 图片处理（在流式推理之前，同步完成；通过 SSE 通知前端状态）
             if payload.image_base64:
                 yield _sse({"type": "status", "text": "正在识别图片…"})
-                image_note = await _handle_image(payload, session, current.id)
-                # 如果视觉识别成功，通知前端
-                if "但视觉" not in image_note and "调用失败" not in image_note:
-                    yield _sse({"type": "status", "text": "✅ 图片已识别"})
-                else:
-                    yield _sse({"type": "status", "text": "⚠️ 图片识别未成功，已转为文字记录模式"})
+                img_res = await _handle_image(payload, session, current.id)
+                image_note = img_res.get("note", "")
+                # 通知前端识别状态
+                yield _sse({"type": "status", "text": img_res.get("status", "")})
+                # 训练模式：推送结构化识别结果，前端渲染确认卡（确认才入库）
+                if img_res.get("training"):
+                    yield _sse({"type": "training_recognition", "recognition": img_res["training"]})
             else:
                 image_note = ""
 
