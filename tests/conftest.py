@@ -17,6 +17,9 @@ os.environ["UPLOAD_DIR"] = "./test_uploads"  # 测试上传目录，避免污染
 os.environ["REASONING_PROVIDER"] = "fake"
 os.environ["VISION_PROVIDER"] = "fake"
 os.environ["EMBEDDING_PROVIDER"] = ""
+# 测试不连真 Redis（.env 可能配了 REDIS_URL），强制走内存缓存隔离，
+# 避免推送限流计数在真实 Redis 中跨测试累积导致误判。
+os.environ["REDIS_URL"] = ""
 
 from app.config import get_settings
 

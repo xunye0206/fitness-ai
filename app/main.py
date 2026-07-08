@@ -66,3 +66,9 @@ async def index():
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/privacy")
+async def privacy_policy():
+    """隐私政策页（合规：公网收集健康/饮食数据须明示政策）。"""
+    return FileResponse("static/privacy.html")
