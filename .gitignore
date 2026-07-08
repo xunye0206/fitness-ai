@@ -4,8 +4,12 @@
 
 # 数据库文件（表结构由代码生成，不入库）
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
+*.sqlite-wal
 *.sqlite3
+*.sqlite3-shm
 
 # 上传图片 / 测试产物（不入库）
 data/

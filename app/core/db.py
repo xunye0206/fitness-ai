@@ -30,6 +30,20 @@ def _normalize_db_url(url: str) -> str:
 
 _DATABASE_URL = _normalize_db_url(settings.database_url)
 engine = create_async_engine(_DATABASE_URL, echo=False, future=True)
+
+# SQLite 本地/测试模式：开启 WAL + busy_timeout + synchronous=NORMAL，
+# 提升并发写入稳定性（压测反馈的高并发写锁问题）。Postgres 不受影响。
+if not _DATABASE_URL.startswith("postgresql"):
+    from sqlalchemy import event
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_sqlite_pragma(dbapi_conn, conn_record):
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=5000")
+        cur.execute("PRAGMA synchronous=NORMAL")
+        cur.close()
+
 async_session_factory = async_sessionmaker(
     engine, class_=AsyncSession, expire_on_commit=False
 )
