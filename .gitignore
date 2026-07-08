@@ -30,3 +30,8 @@ venv/
 
 # 工具状态 / 项目记忆（不入库）
 .workbuddy/
+
+# 本地运行产生的临时日志
+_server.log
+_server_*.log
+fitness.db*
