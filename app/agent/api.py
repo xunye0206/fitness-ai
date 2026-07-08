@@ -19,9 +19,16 @@ from app.agent.graph import run_diet_recognition
 from app.agent.tools import TOOLS, execute_tool
 from app.core.db import get_session
 from app.llm.base import Message
-from app.llm.router import reason_stream, reason_stream_with_tools
+from app.llm.router import reason, reason_stream, reason_stream_with_tools
 from app.agent.context import build_context
-from app.agent.guardrails import check_output_safety, needs_disclaimer, DISCLAIMER_TEXT
+from app.agent.guardrails import (
+    check_output_safety,
+    needs_disclaimer,
+    DISCLAIMER_TEXT,
+    llm_check_output_safety,
+    LLM_COMPLIANCE_CHECK,
+    GuardrailVerdict,
+)
 from app.modules.auth.api import get_current_user
 from app.modules.auth.domain import User
 from app.modules.diet.domain import DietEntry
@@ -177,10 +184,16 @@ async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> Stream
                         yield _sse({"type": "delta", "text": chunk})
 
             # 5) 输出合规检测 + 免责声明（里程碑2：对应《策划书》§六/§七、代码规范 §6/§12）
-            # 命中越界措辞强制补提示；未含免责声明则补一段，保证每次建议都带合规底线。
+            # 关键词检测 + LLM 语义复核双保险；任一命中越界即补提示，未含免责则补声明。
             safety = check_output_safety(full_reply)
-            if not safety.allowed:
-                logger.warning("教练回复命中越界措辞 %s，已附合规提示", safety.reasons)
+            llm_safety = (
+                await llm_check_output_safety(full_reply, reason)
+                if LLM_COMPLIANCE_CHECK
+                else GuardrailVerdict(allowed=True, reasons=[])
+            )
+            if not safety.allowed or not llm_safety.allowed:
+                hit_reasons = safety.reasons + llm_safety.reasons
+                logger.warning("教练回复命中越界措辞 %s，已附合规提示", hit_reasons)
                 yield _sse({"type": "delta", "text": "\n\n⚠️ 提醒：我是健身教练，不提供医疗诊断或治疗方案。"})
             if not needs_disclaimer(full_reply):
                 yield _sse({"type": "delta", "text": "\n\n" + DISCLAIMER_TEXT})

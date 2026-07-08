@@ -6,6 +6,7 @@ import json
 
 from app.agent import api as agent_api
 from app.agent.guardrails import DISCLAIMER_TEXT
+from app.llm.base import LLMResult
 from app.main import app
 from fastapi.testclient import TestClient
 
@@ -104,3 +105,28 @@ def test_chat_flags_forbidden_term_and_appends_disclaimer(client: TestClient, mo
     assert "你患有高血脂" in d["reply"]     # 原回复保留
     assert "不提供医疗诊断" in d["reply"]   # 合规提示已追加
     assert DISCLAIMER_TEXT in d["reply"]    # 免责声明已追加
+
+
+def test_chat_llm_review_flags_rewritten_bypass(client: TestClient, monkeypatch):
+    """里程碑2 增强：关键词漏检的改写绕过，被 LLM 语义复核拦下并补提示+声明。"""
+    async def fake_reason_stream_with_tools(messages, tools, tool_choice="auto"):
+        yield {"type": "delta", "text": "你这指标看着像高血脂，调一调代谢就好。"}
+
+    async def fake_reason(messages):
+        # 关键词层放过（无命中短语），但 LLM 复核判 UNSAFE
+        return LLMResult(text="UNSAFE：暗示疾病诊断与调理用药")
+
+    monkeypatch.setattr(agent_api, "reason_stream_with_tools", fake_reason_stream_with_tools)
+    monkeypatch.setattr(agent_api, "reason", fake_reason)
+
+    token = _token(client)
+    r = client.post(
+        "/agent/chat",
+        json={"message": "帮我看看指标"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    d = _parse_sse(r.text)
+    assert d["ok"] is True
+    assert "不提供医疗诊断" in d["reply"]   # LLM 复核触发的合规提示
+    assert DISCLAIMER_TEXT in d["reply"]    # 免责声明追加

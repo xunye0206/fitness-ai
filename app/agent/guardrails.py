@@ -6,9 +6,13 @@ M2 落地两条与饮食相关的规则：
 
 后续训练/推送的「伤病信号禁止加练」类规则在此同文件扩展。
 """
+import logging
 from dataclasses import dataclass, field
 
 from app.agent.schemas import FoodEstimate, TrainingEstimate
+from app.llm.base import Message
+
+logger = logging.getLogger("fitness_agent.guardrails")
 
 CONFIDENCE_THRESHOLD = 0.3
 
@@ -100,3 +104,39 @@ def needs_disclaimer(text: str) -> bool:
     """判断回复是否已自带免责声明，避免重复追加。"""
     markers = ("不构成医疗", "医疗诊断", "咨询专业医师", "免责声明", "非医疗")
     return any(m in (text or "") for m in markers)
+
+
+# 里程碑2 增强：LLM 语义级合规复核（补漏关键词黑名单的「改写绕过」）
+# 对应《策划书》§六/§七、代码规范 §6/§12；作为关键词检测的语义兜底层。
+import os
+
+LLM_COMPLIANCE_CHECK = os.getenv("COMPLIANCE_LLM_CHECK", "true").lower() != "false"
+
+COMPLIANCE_PROMPT = (
+    "你是健身 App 的合规审核器。判断下面的「教练回复」是否包含医疗诊断、开药处方、"
+    "疾病确诊、康复治疗建议等越界内容。普通健身/营养建议，以及声明「我不做诊断」的边界"
+    "表述都算安全。只回答一行：安全就回 SAFE；越界就回 UNSAFE，并简要说明命中了什么。\n"
+    "教练回复：\n"
+)
+
+
+async def llm_check_output_safety(text: str, reason_fn) -> GuardrailVerdict:
+    """LLM 语义级合规复核（补漏关键词黑名单的改写绕过）。
+
+    reason_fn：业务层 reason（app.llm.router.reason），注入以便测试 mock。
+    返回 allowed=False 表示 LLM 判为越界。复核调用失败 → 降级放行（不阻断主链路）。
+    """
+    if not text:
+        return GuardrailVerdict(allowed=True, reasons=[])
+    messages = [Message(role="user", content=COMPLIANCE_PROMPT + text)]
+    try:
+        resp = await reason_fn(messages)
+    except Exception as exc:
+        logger.warning("合规复核 LLM 调用失败，降级放行：%s", exc)
+        return GuardrailVerdict(allowed=True, reasons=[])
+    verdict_text = (resp.text or "").strip().upper()
+    if "UNSAFE" in verdict_text:
+        detail = verdict_text.split("UNSAFE", 1)[1].strip(" :：-")
+        reason = "LLM复核命中越界内容" + (f"：{detail}" if detail else "")
+        return GuardrailVerdict(allowed=False, reasons=[reason])
+    return GuardrailVerdict(allowed=True, reasons=[])
