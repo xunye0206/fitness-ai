@@ -4,11 +4,21 @@
 """
 import json
 
+import pytest
+
 from app.agent import api as agent_api
 from app.agent.guardrails import DISCLAIMER_TEXT
 from app.llm.base import LLMResult
 from app.main import app
 from fastapi.testclient import TestClient
+
+
+@pytest.fixture(autouse=True)
+def _noop_profile_bg_update(monkeypatch):
+    # M10：/agent/chat 在流式返回后会 fire-and-forget 触发画像更新（asyncio.create_task）。
+    # 同步 TestClient 在事件循环关闭时会等待该后台任务，导致测试挂起；故测试里替换为
+    # no-op。画像「抽取+写入」能力由 tests/test_profile.py 以同步方式（传 session）单独验证。
+    monkeypatch.setattr(agent_api, "schedule_profile_update", lambda *a, **k: None)
 
 
 def _token(client: TestClient) -> str:
@@ -130,3 +140,25 @@ def test_chat_llm_review_flags_rewritten_bypass(client: TestClient, monkeypatch)
     assert d["ok"] is True
     assert "不提供医疗诊断" in d["reply"]   # LLM 复核触发的合规提示
     assert DISCLAIMER_TEXT in d["reply"]    # 免责声明追加
+
+
+def test_chat_profile_recall_injection_does_not_break(client: TestClient, monkeypatch):
+    """M10：即便长期画像召回返回命中，聊天链路仍正常（注入上下文不崩、不泄漏原话）。"""
+    from app.modules.memory.service import RecallHit
+
+    async def fake_recall(*_a, **_k):
+        return [RecallHit(text="用户讨厌西兰花", score=0.9, source="profile/反思")]
+
+    monkeypatch.setattr(agent_api, "recall_profile", fake_recall)
+
+    token = _token(client)
+    r = client.post(
+        "/agent/chat",
+        json={"message": "今晚吃啥好"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    d = _parse_sse(r.text)
+    assert d["ok"] is True
+    # 画像注记是 system 上下文，不应原样出现在对用户的最终回复里
+    assert "讨厌西兰花" not in d["reply"]

@@ -21,6 +21,7 @@ from app.core.db import get_session
 from app.llm.base import Message
 from app.llm.router import reason, reason_stream, reason_stream_with_tools
 from app.agent.context import build_context
+from app.agent.profile import recall_profile, schedule_profile_update
 from app.agent.guardrails import (
     check_output_safety,
     needs_disclaimer,
@@ -148,6 +149,21 @@ async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> Stream
             user_text = (payload.message or "").strip()
             user_content = (user_text + "\n" + image_note).strip()
 
+            # 2.7) M10 长期画像召回：用用户当前发言定向语义召回，注入教练上下文做个性化
+            try:
+                profile_hits = await recall_profile(session, current.id, user_content, k=3)
+            except Exception:
+                profile_hits = []
+            if profile_hits:
+                profile_block = "\n".join(f"- {h.text}" for h in profile_hits)
+                messages.append(
+                    Message(
+                        role="system",
+                        content="【用户长期画像（仅供参考，用于个性化，勿复述原话）】\n"
+                        + profile_block,
+                    )
+                )
+
             messages.append(Message(role="user", content=user_content))
 
             # 3) 流式推理，同时检测工具调用（首 token 立即推送）
@@ -197,6 +213,9 @@ async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> Stream
                 yield _sse({"type": "delta", "text": "\n\n⚠️ 提醒：我是健身教练，不提供医疗诊断或治疗方案。"})
             if not needs_disclaimer(full_reply):
                 yield _sse({"type": "delta", "text": "\n\n" + DISCLAIMER_TEXT})
+
+            # 6) M10 长期画像记忆后台更新：fire-and-forget，不阻塞 SSE 流返回
+            schedule_profile_update(current.id, user_text, full_reply)
 
             yield _sse({"type": "done", "ok": True})
         except Exception as exc:

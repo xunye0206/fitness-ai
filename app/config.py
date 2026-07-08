@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     # 若你的 MaaS 端点不支持 /embeddings，可单独指向 DashScope 主站 compatible-mode 端点。
     embedding_base_url: str = ""
 
+    # M10 长期画像记忆总开关：关闭后既不抽取也不召回用户画像（回退到无个性化）
+    profile_memory_enabled: bool = True
+
     # 各供应商密钥与端点（仅在 provider != fake 时使用）
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com/v1"
