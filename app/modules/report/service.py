@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.agent.context import build_context
+from app.agent.context import build_context, invalidate_context_cache
 from app.config import settings
 from app.llm.base import Message
 from app.llm.router import reason
@@ -97,6 +97,7 @@ async def generate_report(
     session.add(report)
     await session.commit()
     await session.refresh(report)
+    await invalidate_context_cache(user_id)  # 报告落地后使上下文缓存失效
 
     # 把报告摘要写入向量库，作为跨周期的长期记忆（下次生成报告时 recall 召回）。
     # 失败优雅降级（embedding 不可用/落库异常），绝不影响报告主链路。

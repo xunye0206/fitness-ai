@@ -12,10 +12,13 @@ from app.agent import context as context_mod
 from app.agent.context import build_context
 from app.core import redis as redis_mod
 from app.core.db import async_session_factory
+from app.core.redis import cache_get
 from app.llm.base import LLMResult
 from app.modules.diet.domain import DietEntry
 from app.modules.memory.service import index_wiki, recall
 from app.modules.training.domain import TrainingEntry
+from app.modules.training.schemas import TrainingCreate
+from app.modules.training.service import record_training
 
 # ---------- fake embed（确定性伪向量，仅测试用）----------
 VOCAB = list("健身饮食蛋白质训练睡眠蔬菜水果西兰花菠菜黄瓜番茄胸背腿")
@@ -196,3 +199,29 @@ def test_context_cache_hit_without_redis(client, monkeypatch):
     c1, c2 = asyncio.run(run())
     assert c1 == c2
     assert calls["n"] == 1   # 不装 Redis 也只算一次 → 缓存真正命中
+
+
+# ---------- 7. 写入后上下文缓存失效：教练能看到刚发生的事 ----------
+def test_context_cache_invalidated_after_write(client):
+    """记录一条训练后，原 ctx 缓存应被清除，下次 build_context 重新聚合含新数据。"""
+    async def run():
+        async with async_session_factory() as s:
+            await _seed(s, 2010)
+            # 首次 build 写入缓存
+            c1 = await build_context(s, 2010, days=7, use_semantic=False)
+            assert (await cache_get("ctx:2010:7:0")) is not None
+            # 记录一条新训练（应触发上下文缓存失效）
+            await record_training(
+                s, 2010,
+                TrainingCreate(exercise_type="游泳", duration_min=45, intensity="high",
+                               calories_burned=400.0),
+            )
+            # 缓存必须被清（否则教练看到的还是旧汇总）
+            assert (await cache_get("ctx:2010:7:0")) is None
+            # 再次 build 应重新聚合，且包含新训练
+            c2 = await build_context(s, 2010, days=7, use_semantic=False)
+        return c1, c2
+
+    c1, c2 = asyncio.run(run())
+    assert "游泳" in c2          # 新训练出现在重新聚合的上下文
+    assert "游泳" not in c1      # 而首次缓存里没有它（证明是失效后重算，而非误判）

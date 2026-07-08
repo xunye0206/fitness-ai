@@ -16,7 +16,7 @@ from app.modules.diet.domain import DietEntry
 from app.modules.memory.domain import MemoryEmbedding  # noqa: F401  确保表进入 metadata 被建出
 from app.modules.memory.service import recall as recall_memory
 from app.modules.training.domain import TrainingEntry
-from app.core.redis import cache_get, cache_set  # agent 上下文热缓存（Redis 缺失自动降级）
+from app.core.redis import cache_delete_pattern, cache_get, cache_set  # agent 上下文热缓存（Redis 缺失自动降级）
 
 # 召回窗口天数（默认 7，对应设计稿"近 7 天"）
 DEFAULT_RECALL_DAYS = 7
@@ -45,6 +45,18 @@ async def build_context(
     text = await _build_context_inner(session, user_id, days, use_semantic)
     await cache_set(cache_key, text, ttl=600)
     return text
+
+
+async def invalidate_context_cache(user_id: int) -> None:
+    """数据写入后使该用户的 agent 上下文热缓存失效。
+
+    否则 build_context 的 10 分钟缓存会让教练在写入后的一段时间内仍看到旧的
+    7 天汇总（"教练不知道你刚干了啥"）。失败静默降级，绝不拖垮写主链路。
+    """
+    try:
+        await cache_delete_pattern(f"ctx:{user_id}:*")
+    except Exception:
+        logger.warning("上下文缓存失效失败 user=%d", user_id)
 
 
 async def _build_context_inner(

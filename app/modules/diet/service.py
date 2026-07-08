@@ -13,6 +13,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.agent import run_diet_recognition
+from app.agent.context import invalidate_context_cache
 from app.agent.schemas import FoodEstimate
 from app.config import settings
 from app.modules.diet.domain import CST, DietEntry
@@ -62,6 +63,7 @@ async def recognize_diet(session: AsyncSession, user_id: int, image: UploadFile)
         session.add(entry)
         await session.commit()
         await session.refresh(entry)
+        await invalidate_context_cache(user_id)  # 写入后使教练上下文缓存失效
         return {
             "entry_id": entry.id,
             "estimate": None,
@@ -86,6 +88,7 @@ async def recognize_diet(session: AsyncSession, user_id: int, image: UploadFile)
     session.add(entry)
     await session.commit()
     await session.refresh(entry)
+    await invalidate_context_cache(user_id)  # 写入后使教练上下文缓存失效
     return {
         "entry_id": entry.id,
         "estimate": estimate,
@@ -116,6 +119,7 @@ async def correct_diet(
     session.add(entry)
     await session.commit()
     await session.refresh(entry)
+    await invalidate_context_cache(user_id)  # 修正后同样失效上下文缓存
     return entry
 
 

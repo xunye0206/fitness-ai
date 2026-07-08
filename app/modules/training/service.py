@@ -13,6 +13,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.agent import run_training_recognition
 from app.agent.schemas import TrainingEstimate
+from app.agent.context import invalidate_context_cache
 from app.modules.training.domain import TrainingEntry
 from app.modules.training.schemas import TrainingCreate
 
@@ -38,6 +39,7 @@ async def record_training(
     session.add(entry)
     await session.commit()
     await session.refresh(entry)
+    await invalidate_context_cache(user_id)  # 写入后使教练上下文缓存失效
     return entry
 
 

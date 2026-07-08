@@ -11,6 +11,7 @@
 - 内存缓存与 Redis 异常都绝不抛异常、不拖垮主链路（饮食/训练/报告/推送）。
 """
 import logging
+import re
 import time
 from functools import lru_cache
 from typing import Optional
@@ -53,6 +54,14 @@ class _MemCache:
 
     async def delete(self, key: str) -> None:
         self._store.pop(key, None)
+
+    async def delete_pattern(self, pattern: str) -> int:
+        """按通配符删除（pattern 中 * 匹配任意字符，含冒号），返回删除数量。"""
+        rx = re.compile("^" + pattern.replace("*", ".*") + "$")
+        matched = [k for k in list(self._store.keys()) if rx.match(k)]
+        for k in matched:
+            self._store.pop(k, None)
+        return len(matched)
 
     async def incr(self, key: str, ttl: int = 86400) -> int:
         item = self._store.get(key)
@@ -128,6 +137,29 @@ async def cache_delete(key: str) -> None:
             await _mem_cache.delete(key)
         except Exception:
             return
+
+
+async def cache_delete_pattern(pattern: str) -> int:
+    """按通配符删除缓存键（pattern 用 * 作通配，如 ctx:123:*），返回删除数量。
+
+    用于数据写入后使 agent 上下文热缓存失效，避免教练在写入后的一段时间内
+    仍看到旧的 7 天汇总。Redis 缺失/异常时自动降级到内存缓存，不影响主链路。
+    """
+    try:
+        backend = _backend()
+        if isinstance(backend, _MemCache):
+            return await backend.delete_pattern(pattern)
+        # Redis 客户端：scan_iter 流式遍历 + 逐键删除
+        count = 0
+        async for key in backend.scan_iter(match=pattern):
+            await backend.delete(key)
+            count += 1
+        return count
+    except Exception:
+        try:
+            return await _mem_cache.delete_pattern(pattern)
+        except Exception:
+            return 0
 
 
 async def rate_incr(key: str, ttl: int = 86400) -> int:
