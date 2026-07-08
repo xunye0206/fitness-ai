@@ -52,3 +52,51 @@ def push_content_safe(body: str, has_injury: bool) -> GuardrailVerdict:
         reasons.append("检测到伤病信号，已拦截「加量/加练」类危险鼓励，建议休息")
         return GuardrailVerdict(allowed=False, reasons=reasons)
     return GuardrailVerdict(allowed=True, reasons=reasons)
+
+
+# 里程碑2：输出合规护栏（对应《策划书》§六/§七、代码规范 §6/§12）
+# 健康/健身类产品的合规底线：教练最终回复不得含医疗诊断/治疗类越界措辞，
+# 且每次建议需附「非医疗诊断」免责声明。
+DISCLAIMER_TEXT = (
+    "📌 温馨提示：以上仅为基于你记录数据的健身与营养建议，"
+    "不构成医疗诊断或治疗方案。如有不适或健康问题，请咨询专业医师。"
+)
+# 命中即视为「越界」的明确断言短语（聚焦诊断/治疗行为，避免误伤边界声明）。
+# 设计取舍：单字「诊断」「体脂」易与「我不做诊断」混淆，故用行为短语 + 否定语境排除。
+FORBIDDEN_OUTPUT_TERMS = (
+    "你患有", "您患有", "你得了", "您得了", "疑似患病", "建议服用",
+    "开药", "处方药", "康复治疗", "康复方案", "体脂率偏高", "体脂率偏低",
+    "病情严重", "临床确诊", "诊断你", "诊断结果", "确诊你",
+)
+# 否定语境词：命中词前 8 字内出现这些，说明是边界声明（如「我不做诊断」），不算越界。
+_NEGATION_NEAR = ("不", "没", "没有", "无法", "不能", "不会", "切勿", "不要")
+
+
+def _is_negated_context(text: str, pos: int) -> bool:
+    """命中词前 8 字内是否是否定语境，是则视为边界声明而非越界断言。"""
+    window = text[max(0, pos - 8):pos]
+    return any(neg in window for neg in _NEGATION_NEAR)
+
+
+def check_output_safety(text: str) -> GuardrailVerdict:
+    """输出合规检测：扫描教练最终回复是否含越界的医疗/诊断/治疗断言。
+
+    命中（且非否定语境）→ allowed=False，reasons 列出命中短语，交由调用方
+    追加合规提示与免责声明；未命中 → allowed=True。
+    """
+    if not text:
+        return GuardrailVerdict(allowed=True, reasons=[])
+    reasons: list[str] = []
+    for term in FORBIDDEN_OUTPUT_TERMS:
+        pos = text.find(term)
+        if pos != -1 and not _is_negated_context(text, pos):
+            reasons.append(f"回复含越界措辞：{term}")
+    if reasons:
+        return GuardrailVerdict(allowed=False, reasons=reasons)
+    return GuardrailVerdict(allowed=True, reasons=[])
+
+
+def needs_disclaimer(text: str) -> bool:
+    """判断回复是否已自带免责声明，避免重复追加。"""
+    markers = ("不构成医疗", "医疗诊断", "咨询专业医师", "免责声明", "非医疗")
+    return any(m in (text or "") for m in markers)

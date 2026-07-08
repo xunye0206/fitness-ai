@@ -21,6 +21,7 @@ from app.core.db import get_session
 from app.llm.base import Message
 from app.llm.router import reason_stream, reason_stream_with_tools
 from app.agent.context import build_context
+from app.agent.guardrails import check_output_safety, needs_disclaimer, DISCLAIMER_TEXT
 from app.modules.auth.api import get_current_user
 from app.modules.auth.domain import User
 from app.modules.diet.domain import DietEntry
@@ -123,6 +124,7 @@ async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> Stream
 
     async def event_gen():
         actions: list[str] = []
+        full_reply = ""  # 累积教练最终回复，用于输出合规检测（里程碑2）
         try:
             # 2.5) 图片处理（在流式推理之前，同步完成；通过 SSE 通知前端状态）
             if payload.image_base64:
@@ -146,6 +148,7 @@ async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> Stream
             async for ev in reason_stream_with_tools(messages, TOOLS):
                 if ev.get("type") == "delta":
                     if ev.get("text"):
+                        full_reply += ev["text"]
                         yield _sse({"type": "delta", "text": ev["text"]})
                 elif ev.get("type") == "tools":
                     tool_calls = ev.get("calls")
@@ -170,7 +173,17 @@ async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> Stream
                 # 最终回复流式输出
                 async for chunk in reason_stream(messages):
                     if chunk:
+                        full_reply += chunk
                         yield _sse({"type": "delta", "text": chunk})
+
+            # 5) 输出合规检测 + 免责声明（里程碑2：对应《策划书》§六/§七、代码规范 §6/§12）
+            # 命中越界措辞强制补提示；未含免责声明则补一段，保证每次建议都带合规底线。
+            safety = check_output_safety(full_reply)
+            if not safety.allowed:
+                logger.warning("教练回复命中越界措辞 %s，已附合规提示", safety.reasons)
+                yield _sse({"type": "delta", "text": "\n\n⚠️ 提醒：我是健身教练，不提供医疗诊断或治疗方案。"})
+            if not needs_disclaimer(full_reply):
+                yield _sse({"type": "delta", "text": "\n\n" + DISCLAIMER_TEXT})
 
             yield _sse({"type": "done", "ok": True})
         except Exception as exc:
