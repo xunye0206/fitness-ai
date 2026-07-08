@@ -54,6 +54,8 @@ async def init_db() -> None:
         await conn.run_sync(SQLModel.metadata.create_all)
         # 兼容旧库：diet_entries 缺 meal_type 列时补列（新库 create_all 已建，此处幂等跳过）
         await _migrate_diet_meal_type(conn)
+        # 兼容旧库：training_entries 缺截图识别扩展列时补列（新库 create_all 已建，此处幂等跳过）
+        await _migrate_training_columns(conn)
         if _is_postgres():
             try:
                 await conn.execute(
@@ -91,3 +93,30 @@ async def _migrate_diet_meal_type(conn) -> None:
             logger.info("已为 diet_entries 表新增 meal_type 列")
     except Exception as exc:
         logger.warning("diet_entries.meal_type 迁移跳过：%s", exc)
+
+
+async def _migrate_training_columns(conn) -> None:
+    """给已存在的 training_entries 表补截图识别扩展列（若不存在）。SQLite/Postgres 通用。"""
+    cols = [
+        ("distance_km", "FLOAT DEFAULT 0"),
+        ("sets", "INTEGER DEFAULT 0"),
+        ("reps", "INTEGER DEFAULT 0"),
+        ("pace", "VARCHAR(32) DEFAULT ''"),
+        ("avg_hr", "INTEGER DEFAULT 0"),
+        ("source", "VARCHAR(16) DEFAULT 'manual'"),
+    ]
+    try:
+        def _missing_cols(sync_conn) -> list[tuple[str, str]]:
+            from sqlalchemy import inspect
+            insp = inspect(sync_conn)
+            if not insp.has_table("training_entries"):
+                return []
+            existing = [c["name"] for c in insp.get_columns("training_entries")]
+            return [(name, ddl) for name, ddl in cols if name not in existing]
+
+        todo = await conn.run_sync(_missing_cols)
+        for name, ddl in todo:
+            await conn.execute(text(f"ALTER TABLE training_entries ADD COLUMN {name} {ddl}"))
+            logger.info("已为 training_entries 表新增列 %s", name)
+    except Exception as exc:
+        logger.warning("training_entries 扩展列迁移跳过：%s", exc)

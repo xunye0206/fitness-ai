@@ -8,7 +8,7 @@ M2 落地两条与饮食相关的规则：
 """
 from dataclasses import dataclass, field
 
-from app.agent.schemas import FoodEstimate
+from app.agent.schemas import FoodEstimate, TrainingEstimate
 
 CONFIDENCE_THRESHOLD = 0.3
 
@@ -24,7 +24,7 @@ class Guardrails:
     def __init__(self, confidence_threshold: float = CONFIDENCE_THRESHOLD) -> None:
         self.confidence_threshold = confidence_threshold
 
-    def evaluate(self, estimate: FoodEstimate | None) -> GuardrailVerdict:
+    def evaluate(self, estimate: FoodEstimate | TrainingEstimate | None) -> GuardrailVerdict:
         if estimate is None:
             return GuardrailVerdict(allowed=False, reasons=["视觉识别失败，未获得有效估算"])
         reasons: list[str] = []

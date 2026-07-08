@@ -28,6 +28,26 @@ class FakeProvider(LLMProvider):
         yield {"type": "delta", "text": text}
 
     async def see(self, image_base64: str, prompt: str) -> LLMResult:
+        # 提示词请求训练结构化字段时，返回训练形状的固定估算（保持 training 链路可测）
+        if "exercise_type" in prompt or "训练" in prompt:
+            estimate = {
+                "exercise_type": "跑步（fake）",
+                "duration_min": 30,
+                "calories_burned": 280.0,
+                "distance_km": 5.0,
+                "sets": 0,
+                "reps": 0,
+                "pace": "6:00",
+                "avg_hr": 150,
+                "intensity": "medium",
+                "date": "",
+                "confidence": 0.7,
+                "note": "测试用固定训练估算",
+            }
+            return LLMResult(
+                text="[fake-see] 训练：跑步 30 分钟，5.0km，约 280 kcal（置信度 0.7）",
+                raw={"estimate": estimate},
+            )
         estimate = {
             "name": "示例餐食（fake）",
             "calories": 520.0,

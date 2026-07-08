@@ -15,5 +15,12 @@ class TrainingEntry(SQLModel, table=True):
     duration_min: int = 0
     intensity: str = "medium"  # low | medium | high
     calories_burned: float = 0.0
+    # 以下为「截图识别」扩展字段（可选，手动录入时多为空）：
+    distance_km: float = 0.0       # 距离(km)，有氧项目
+    sets: int = 0                  # 组数，力量项目
+    reps: int = 0                  # 每组次数
+    pace: str = ""                 # 配速，如 "6:00"
+    avg_hr: int = 0                # 平均心率(bpm)
+    source: str = "manual"         # manual | image | keep（区分录入来源，便于分析）
     notes: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

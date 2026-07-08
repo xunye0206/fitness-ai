@@ -12,6 +12,13 @@ class TrainingCreate(BaseModel):
     duration_min: int
     intensity: str = "medium"  # low | medium | high
     calories_burned: float = 0.0
+    # 截图识别扩展字段（可选）
+    distance_km: float = 0.0
+    sets: int = 0
+    reps: int = 0
+    pace: str = ""
+    avg_hr: int = 0
+    source: str = "manual"  # manual | image | keep
     notes: str = ""
 
 
@@ -22,5 +29,11 @@ class TrainingOut(BaseModel):
     duration_min: int
     intensity: str
     calories_burned: float
-    notes: str
+    distance_km: float = 0.0
+    sets: int = 0
+    reps: int = 0
+    pace: str = ""
+    avg_hr: int = 0
+    source: str = "manual"
+    notes: str = ""
     created_at: datetime
