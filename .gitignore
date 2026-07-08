@@ -35,3 +35,4 @@ venv/
 _server.log
 _server_*.log
 fitness.db*
+cloudbaserc.json
