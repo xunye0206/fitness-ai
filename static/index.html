@@ -434,9 +434,6 @@ button.ghost:hover { background:#F3F4F6; }
   </div>
 
   <nav class="nav">
-    <div class="nav-item" data-page="dashboard" onclick="navigate('dashboard')">
-      <span class="nav-icon">&#9632;</span>仪表盘
-    </div>
     <div class="nav-item active" data-page="coach" onclick="navigate('coach')">
       <span class="nav-icon">&#129302;</span>AI 教练
     </div>
@@ -468,7 +465,7 @@ button.ghost:hover { background:#F3F4F6; }
   <header class="topbar">
     <div class="topbar-left">
       <div class="conn-dot" id="connDot"></div>
-      <span class="page-title" id="topTitle">仪表盘</span>
+      <span class="page-title" id="topTitle">AI 教练</span>
     </div>
     <div class="topbar-right">
       <button class="user-btn" id="topUserBtn" onclick="openLoginModal()" title="登录 / 注册">
@@ -479,50 +476,6 @@ button.ghost:hover { background:#F3F4F6; }
 
   <!-- Content -->
   <main class="main">
-
-    <!-- ========== PAGE: DASHBOARD ========== -->
-    <div class="page active" id="page-dashboard">
-      <div class="page-header">
-        <h1>欢迎回来</h1>
-        <p>你的个人 AI 健身教练，全天候陪伴你的健康生活。</p>
-      </div>
-
-      <div class="welcome-banner" id="welcomeBanner">
-        <h2>&#128075; 欢迎体验 健身AI Agent</h2>
-        <p>拍照识食 · 训练记录 · 智能日报 · 主动推送 — 你的专属 AI 教练已就位。请先登录或注册以开始使用。</p>
-      </div>
-
-      <div class="card">
-        <div class="card-title"><span class="icon-badge blue">&#9733;</span> 快捷操作</div>
-        <div class="quick-actions">
-          <div class="quick-action" onclick="requireAuth(function(){navigate('diet')})">
-            <div class="qa-icon">&#127869;</div>
-            <div class="qa-label">拍照识食</div>
-            <div class="qa-desc">上传食物照片识别热量</div>
-          </div>
-          <div class="quick-action" onclick="requireAuth(function(){navigate('training')})">
-            <div class="qa-icon">&#127939;</div>
-            <div class="qa-label">记录训练</div>
-            <div class="qa-desc">录入今日运动数据</div>
-          </div>
-          <div class="quick-action" onclick="requireAuth(function(){navigate('report')})">
-            <div class="qa-icon">&#128240;</div>
-            <div class="qa-label">生成日报</div>
-            <div class="qa-desc">AI 分析近期数据出报告</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card" id="dashStatsCard" style="display:none">
-        <div class="card-title"><span class="icon-badge green">&#128202;</span> 今日概览</div>
-        <div class="metric-grid" id="dashMetrics">
-          <div class="metric"><div class="val" id="mCalIn">-</div><div class="lbl">摄入热量</div><div class="sub">大卡</div></div>
-          <div class="metric"><div class="val" id="mCalOut">-</div><div class="lbl">消耗热量</div><div class="sub">大卡</div></div>
-          <div class="metric"><div class="val" id="mTrainMin">-</div><div class="lbl">运动时长</div><div class="sub">分钟</div></div>
-          <div class="metric"><div class="val" id="mDietCnt">-</div><div class="lbl">饮食记录</div><div class="sub">条</div></div>
-        </div>
-      </div>
-    </div>
 
     <!-- ========== PAGE: DIET ========== -->
     <div class="page" id="page-diet">
@@ -647,7 +600,7 @@ button.ghost:hover { background:#F3F4F6; }
     </div>
 
     <!-- ========== PAGE: COACH (AI 教练对话 — 沉浸式) ========== -->
-    <div class="page" id="page-coach">
+    <div class="page active" id="page-coach">
       <div class="chat-messages" id="chatBox">
         <div class="chat-msg bot">
           <div class="avatar">&#129302;</div>
@@ -761,7 +714,7 @@ let authPendingAction = null;  // 登录后要执行的回调
 
 // ---------- Navigation ----------
 const PAGE_TITLES = {
-  dashboard:'仪表盘', diet:'饮食记录', training:'训练记录',
+  diet:'饮食记录', training:'训练记录',
   report:'日报报告', coach:'AI 教练', reminders:'提醒', settings:'账号设置'
 };
 
@@ -775,11 +728,8 @@ function navigate(page) {
   document.getElementById('topTitle').textContent = PAGE_TITLES[page] || '';
   // 进入需要数据的页面时自动加载
   if (token) {
-    if (page === 'dashboard') loadDashboard();
     if (page === 'settings') loadSettings();
     if (page === 'reminders') loadReminders();
-  } else {
-    if (page === 'dashboard') updateWelcomeBanner();
   }
 }
 
@@ -909,8 +859,6 @@ function doLogout() {
   document.getElementById('sUserId').textContent='—';
   document.getElementById('sUsername').textContent='—';
   document.getElementById('sCreated').textContent='—';
-  document.getElementById('dashStatsCard').style.display='none';
-  document.getElementById('welcomeBanner').style.display='';
   showResult('logoutResult','\u2714 已退出登录','success');
   navigate('coach');
 }
@@ -1390,45 +1338,6 @@ async function loadSettings(){
   }catch(e){ /* silent */ }
 }
 
-// ---------- Dashboard: Stats ----------
-async function loadDashboard(){
-  if(!token){updateWelcomeBanner();return;}
-  // 并行拉取饮食和训练统计
-  try{
-    const[dRes,tRes]=await Promise.all([
-      fetch(API+'/diet',{headers:apiHeaders()}),
-      fetch(API+'/training',{headers:apiHeaders()})
-    ]);
-    if(dRes.ok&&tRes.ok){
-      const diets=await dRes.json(), trains=await tRes.json();
-      let calIn=0,dCnt=0,calOut=0,tMin=0;
-      const today=new Date().toISOString().slice(0,10);
-      if(Array.isArray(diets)){
-        diets.forEach(e=>{calIn+= (+e.calories||0);dCnt++;});
-      }
-      if(Array.isArray(trains)){
-        trains.forEach(e=>{
-          calOut+=(+e.calories_burned||0);
-          tMin+=(+e.duration_min||0);
-        });
-      }
-      document.getElementById('mCalIn').textContent=calIn||'0';
-      document.getElementById('mCalOut').textContent=calOut||'0';
-      document.getElementById('mTrainMin').textContent=tMin||'0';
-      document.getElementById('mDietCnt').textContent=dCnt||'0';
-      document.getElementById('dashStatsCard').style.display='';
-      document.getElementById('welcomeBanner').style.display='none';
-      document.getElementById('welcomeBanner').querySelector('h2').textContent='\uD83D\uDC4B 你好，'+(currentUser||'用户');
-      document.getElementById('welcomeBanner').querySelector('p').textContent='今天已记录 '+dCnt+' 条饮食、'+tMin+' 分钟运动。继续保持！';
-    }
-  }catch(e){ /* silent */ }
-}
-
-function updateWelcomeBanner(){
-  document.getElementById('dashStatsCard').style.display='none';
-  document.getElementById('welcomeBanner').style.display='';
-}
-
 // ---------- UI Helpers ----------
 function esc(s){ if(!s)return''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
@@ -1488,7 +1397,7 @@ if(token){
       document.getElementById('topUserBtn').innerHTML='&#10003;';
       document.getElementById('topUserBtn').onclick=function(){navigate('settings');};
       document.getElementById('topUserBtn').title=d.username+' (点击进设置)';
-      loadDashboard();
+      navigate('coach');
     })
     .catch(()=>{token='';localStorage.removeItem('fit_token');});
 }
