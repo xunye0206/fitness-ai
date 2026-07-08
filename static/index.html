@@ -203,6 +203,12 @@ button.ghost:hover { background:#F3F4F6; }
 .result-box.success { background:#ECFDF5; color:#065F46; border:1px solid #A7F3D0; }
 .result-box.error   { background:#FEF2F2; color:#991B1B; border:1px solid #FECACA; }
 .result-box.info    { background:#EFF6FF; color:#1E40AF; border:1px solid #BFDBFE; }
+/* 截图识别确认卡里的可编辑表单 */
+.rec-form { margin-top:10px; padding-top:10px; border-top:1px dashed rgba(0,0,0,.12); }
+.rec-form .row { flex-wrap:wrap; }
+.rec-form label { font-size:12px; }
+.rec-form input,.rec-form select,.rec-form textarea { margin-top:2px; }
+
 /* Markdown 渲染内容（用于报告/教练回复） */
 .result-box h1,.result-box h2,.result-box h3 { margin:12px 0 6px; color:var(--text); }
 .result-box h1 { font-size:16px; } .result-box h2 { font-size:15px; } .result-box h3 { font-size:14px; }
@@ -552,6 +558,20 @@ button.ghost:hover { background:#F3F4F6; }
       <div class="page-header">
         <h1>训练记录</h1>
         <p>录入每次运动数据，追踪你的训练轨迹。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="icon-badge amber">&#128247;</span> 上传截图识别训练</div>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:12px">上传 Keep / 悦跑圈 / 苹果健身 等截图，AI 自动抠出训练数据，<b>确认后再保存</b>。</p>
+        <div class="file-upload" id="trainDropZone" onclick="document.getElementById('trainImg').click()">
+          <img id="trainPreviewImg" alt="">
+          <p id="trainUploadHint"><strong>+ 点击选择图片</strong> 或拖拽到此处<br><span style="font-size:11px;color:var(--text3)">支持 JPG / PNG / WebP</span></p>
+        </div>
+        <input type="file" id="trainImg" accept="image/*" style="display:none" onchange="previewTrainFile(this)">
+        <div class="row mt-m" style="align-items:flex-end">
+          <button class="primary" id="trainRecognizeBtn" disabled onclick="doRecognizeTraining()">识别训练数据</button>
+        </div>
+        <div id="trainRecognizeResult" class="result-box"></div>
       </div>
 
       <div class="card">
@@ -957,6 +977,111 @@ async function doRecognize(){
   btn.disabled=false;
 }
 
+// ---------- Training: Recognize (截图识别 + 确认后保存) ----------
+function previewTrainFile(input){
+  const f=input.files[0]; if(!f)return;
+  const preview=document.getElementById('trainPreviewImg');
+  const hint=document.getElementById('trainUploadHint');
+  const btn=document.getElementById('trainRecognizeBtn');
+  const reader=new FileReader();
+  reader.onload=function(e){
+    preview.src=e.target.result; preview.parentElement.classList.add('has-img');
+    hint.style.display='none'; btn.disabled=false;
+  };
+  reader.readAsDataURL(f);
+}
+
+// 根据识别结果生成可编辑确认表单（用户改完再保存）
+function _trainingConfirmForm(e, meta){
+  const im={low:'轻松',medium:'中等',high:'激烈'};
+  const exOpts=['跑步','骑行','游泳','力量训练','跳绳','瑜伽/拉伸','篮球','其他'];
+  let exSel=''; exOpts.forEach(o=>{ exSel+='<option value="'+o+'"'+(o===e.exercise_type?' selected':'')+'>'+o+'</option>'; });
+  let intSel=''; ['low','medium','high'].forEach(o=>{ intSel+='<option value="'+o+'"'+(o===e.intensity?' selected':'')+'>'+im[o]+'</option>'; });
+  const lowConf=(meta&&meta.needs_confirmation)?'\n\u26A0 低置信度，请仔细核对数据':'';
+  const guard=(meta&&meta.guardrail_reasons&&meta.guardrail_reasons.length)?'\n\u26A0 护栏提示：'+meta.guardrail_reasons.join(', '):'';
+  let h='<b>\u2714 识别完成，请确认数据：</b>\n'+lowConf+guard+'\n\n';
+  h+='<div class="rec-form">';
+  h+='<div class="row">';
+  h+='<div><label>运动类型</label><select id="rec_exType">'+exSel+'</select></div>';
+  h+='<div><label>时长（分钟）</label><input type="number" id="rec_duration" value="'+(e.duration_min||0)+'" min="0"></div>';
+  h+='<div><label>强度</label><select id="rec_intensity">'+intSel+'</select></div>';
+  h+='</div>';
+  h+='<div class="row mt-s">';
+  h+='<div><label>消耗热量（大卡）</label><input type="number" id="rec_cal" value="'+(e.calories_burned||0)+'" step="0.1"></div>';
+  h+='<div><label>距离（km）</label><input type="number" id="rec_dist" value="'+(e.distance_km||0)+'" step="0.01"></div>';
+  h+='<div><label>平均心率</label><input type="number" id="rec_hr" value="'+(e.avg_hr||0)+'"></div>';
+  h+='</div>';
+  h+='<div class="row mt-s">';
+  h+='<div><label>组数</label><input type="number" id="rec_sets" value="'+(e.sets||0)+'" min="0"></div>';
+  h+='<div><label>每组次数</label><input type="number" id="rec_reps" value="'+(e.reps||0)+'" min="0"></div>';
+  h+='<div><label>配速</label><input type="text" id="rec_pace" value="'+esc(e.pace||'')+'" placeholder="如 5\'30\"/km"></div>';
+  h+='</div>';
+  h+='<div class="row mt-s">';
+  h+='<div><label>训练日期（留空=今天）</label><input type="date" id="rec_date" value="'+(e.date||'')+'"></div>';
+  h+='</div>';
+  h+='<div class="mt-s"><label>备注（可选）</label><textarea id="rec_notes" rows="2" placeholder="如：状态不错">'+esc(e.note||'')+'</textarea></div>';
+  h+='</div>';
+  h+='\n<button class="primary mt-s" onclick="confirmTrainingFromRecognize()">确认保存</button> ';
+  h+='<button class="secondary mt-s" onclick="document.getElementById(\'trainRecognizeResult\').innerHTML=\'\'">放弃</button>';
+  return h;
+}
+
+async function doRecognizeTraining(){
+  const f=document.getElementById('trainImg').files[0];
+  if(!f){alert('请先选择一张图片');return;}
+  const btn=document.getElementById('trainRecognizeBtn');btn.disabled=true;
+  const fd=new FormData();fd.append('image',f);
+  showResult('trainRecognizeResult','正在识别训练数据…','info');
+  try{
+    const r=await fetch(API+'/training/recognize',{method:'POST',headers:apiHeaders(),body:fd});
+    if(!handle401(r)){btn.disabled=false;return;}
+    const d=await r.json();
+    if(!r.ok){showResult('trainRecognizeResult','错误 ('+r.status+'): '+JSON.stringify(d),'error');btn.disabled=false;return;}
+    const e=d.estimate;
+    if(e){
+      showResult('trainRecognizeResult', _trainingConfirmForm(e, d), 'success');
+    } else {
+      showResult('trainRecognizeResult','模型返回了空结果（可能使用了 fake 模式）。可改用手动录入。','error');
+    }
+  }catch(err){showResult('trainRecognizeResult','失败：'+err.message,'error');}
+  btn.disabled=false;
+}
+
+// 用户确认后才真正写库（POST /training）
+async function confirmTrainingFromRecognize(){
+  const body={
+    exercise_type:document.getElementById('rec_exType').value,
+    duration_min:+document.getElementById('rec_duration').value||0,
+    intensity:document.getElementById('rec_intensity').value,
+    calories_burned:+document.getElementById('rec_cal').value||0,
+    distance_km:+document.getElementById('rec_dist').value||0,
+    avg_hr:+document.getElementById('rec_hr').value||0,
+    sets:+document.getElementById('rec_sets').value||0,
+    reps:+document.getElementById('rec_reps').value||0,
+    pace:document.getElementById('rec_pace').value.trim(),
+    notes:document.getElementById('rec_notes').value.trim(),
+  };
+  const dt=document.getElementById('rec_date').value;
+  if(dt) body.date=dt;
+  const box=document.getElementById('trainRecognizeResult');
+  box.className='result-box show info'; box.innerHTML='正在保存…';
+  try{
+    const r=await apiPost('/training',body);
+    if(!handle401(r))return;
+    const d=await r.json();
+    if(r.ok){
+      showResult('trainRecognizeResult','\u2714 已保存：'+esc(body.exercise_type)+' · '+body.duration_min+'分钟'+(body.distance_km?(' · '+body.distance_km+'km'):''),'success');
+      loadTrainingList();
+      // 清空图片与表单状态
+      document.getElementById('trainImg').value='';
+      document.getElementById('trainPreviewImg').src='';
+      document.getElementById('trainPreviewImg').parentElement.classList.remove('has-img');
+      document.getElementById('trainUploadHint').style.display='';
+      document.getElementById('trainRecognizeBtn').disabled=true;
+    } else {showResult('trainRecognizeResult','保存失败：'+(d.detail||'未知错误'),'error');}
+  }catch(e){showResult('trainRecognizeResult','失败：'+e.message,'error');}
+}
+
 // ---------- Training: Add ----------
 async function doAddTraining(){
   const body={
@@ -1172,11 +1297,16 @@ function _fmtDiet(x,isHead){
     +'<td>'+(x.status==='confirmed'?'<span class="tag green">确认</span>':'<span class="tag amber">'+esc(x.status)+'</span>')+'</td></tr>';
 }
 function _fmtTraining(x,isHead){
-  if(isHead) return '<th>日期</th><th>运动</th><th>时长</th><th>强度</th><th>消耗</th><th>备注</th>';
+  if(isHead) return '<th>日期</th><th>运动</th><th>时长</th><th>强度</th><th>消耗</th><th>距离</th><th>组数×次数</th><th>心率</th><th>备注</th>';
   const im={low:'轻松',medium:'中等',high:'激烈'};
+  const srcMap={manual:'手动',image:'截图',keep:'Keep'};
+  const sr=(x.sets||0)>0&&(x.reps||0)>0?(x.sets+'×'+x.reps):'-';
+  const dist=(x.distance_km&&x.distance_km>0)?(x.distance_km+'km'):'-';
+  const hr=(x.avg_hr&&x.avg_hr>0)?(x.avg_hr+'bpm'):'-';
+  let note=(x.notes||'')+(x.source&&srcMap[x.source]?(' ['+srcMap[x.source]+']'):(x.source?' ['+x.source+']':''));
   return '<tr><td>'+(x.date||'-')+'</td><td>'+esc(x.exercise_type)+'</td><td>'+x.duration_min+'\u5206</td>'
     +'<td><span class="tag '+(x.intensity==='high'?'amber':x.intensity==='low'?'green':'blue')+'">'+(im[x.intensity]||x.intensity)+'</span></td>'
-    +'<td>'+x.calories_burned+'\u5927\u5361</td><td>'+esc(x.notes||'-')+'</td></tr>';
+    +'<td>'+x.calories_burned+'\u5927\u5361</td><td>'+dist+'</td><td>'+sr+'</td><td>'+hr+'</td><td>'+esc(note||'-')+'</td></tr>';
 }
 function _fmtReport(x,isHead){
   if(isHead) return '<th>日期</th><th>小结</th><th>建议</th><th>模型</th>';
@@ -1239,7 +1369,7 @@ function updateWelcomeBanner(){
 }
 
 // ---------- UI Helpers ----------
-function esc(s){ if(!s)return''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function esc(s){ if(!s)return''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 function showResult(id,text,type){
   const el=document.getElementById(id);
