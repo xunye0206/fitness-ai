@@ -24,6 +24,9 @@ python-jose[cryptography]>=3.3.0   # JWT（HS256）
 # ===== LLM =====
 openai>=1.30                   # OpenAI 兼容协议客户端；DeepSeek / Qwen / OpenAI 均经 base_url 切换
 
+# ===== Agent 视觉识别编排 =====
+langgraph>=0.2                 # 图片→饮食/训练 视觉识别状态机（app/agent/graph.py / graph_training.py）
+
 # ===== 缓存 / 调度 =====
 redis>=5.0                     # agent 上下文热缓存 + 推送限流（REDIS_URL 留空则自动降级）
 apscheduler>=3.10              # 每日固化 + 事件巡检推送调度
