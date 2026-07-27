@@ -1,14 +1,12 @@
 # Render 部署配置（free 层可跑全栈）
 #
-# ⚠️ 红线提醒：本项目约定「git 绝不推送远端」。Render 的 GitHub 自动部署需要推送代码，
-#    会打破该红线。如要用 Render 自动部署，需你明确授权破例。
-#    不碰 git 的替代方案：在自有服务器 docker build 本目录后运行（见 DEPLOY.md）。
+# 使用方式（GitHub 自动部署，用户已特批推送 github.com/xunye0206/fitness-ai）：
+#   1. Render 控制台 New → Blueprint → 连接 GitHub 仓库 fitness-ai
+#   2. Render 自动读取本文件创建 Web Service
+#   3. 在 Environment 里填以下 sync:false 变量（不含量密钥，密钥只在 Render 控制台填，不进 git）
+#   4. 数据库用 Supabase（已建），Redis 用 Upstash（已建），图片存 Supabase Storage
 #
-# 使用方式（手动部署，不连 GitHub）：
-#   1. Render 控制台新建 Web Service → 选 "Deploy an existing image" 或上传镜像
-#   2. 或新建 Blueprint → 上传本 render.yaml（需先有代码仓库，即破红线）
-#   3. 在 Environment 里填以下变量（sync:false 表示在控制台手动填，不自动同步）
-#   4. 单独加 Postgres 实例（free 层有）与 Redis（用 Upstash 免费外部 Redis）
+# 安全：本文件不含量密钥，AI key / JWT_SECRET 仅在 Render 控制台 Environment 填写。
 
 services:
   - type: web
@@ -18,7 +16,7 @@ services:
     plan: free
     healthCheckPath: /health
     envVars:
-      - key: DATABASE_URL          # 填 Render Postgres 内部连接串（postgresql+asyncpg://...）
+      - key: DATABASE_URL          # 填 Supabase 连接串（把 postgresql:// 改成 postgresql+asyncpg://）
         sync: false
       - key: REDIS_URL             # 填 Upstash / 外部 Redis 连接串（redis://...）
         sync: false
@@ -40,3 +38,9 @@ services:
         value: "true"
       - key: COMPLIANCE_LLM_CHECK
         value: "true"
+      - key: SUPABASE_URL           # 填 Supabase 项目 URL（Settings → API → Project URL）
+        sync: false
+      - key: SUPABASE_KEY           # 填 Supabase service_role key（Settings → API → service_role secret，勿用 anon！）
+        sync: false
+      - key: SUPABASE_BUCKET        # 填 fitness-uploads（已建为 Public bucket）
+        value: "fitness-uploads"
