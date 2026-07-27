@@ -2,10 +2,9 @@
 
 核心链路：保存图片 → 调 Agent 状态机识图 → 落库（护栏决定 pending/confirmed）。
 业务层不直接调用 LLM，只通过 app.agent.run_diet_recognition 编排。
+图片存储经 app.integrations.storage 统一收口（Supabase 或本地盘降级）。
 """
 import base64
-import os
-import uuid
 
 from datetime import datetime
 from fastapi import UploadFile
@@ -15,7 +14,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.agent import run_diet_recognition
 from app.agent.context import invalidate_context_cache
 from app.agent.schemas import FoodEstimate
-from app.config import settings
+from app.integrations import storage
 from app.modules.diet.domain import CST, DietEntry
 
 # 餐次区间（按北京时间小时判断，无需用户手动选择）
@@ -39,12 +38,8 @@ def infer_meal_type(dt: datetime | None) -> str:
 
 
 def _save_image(data: bytes, filename: str) -> str:
-    os.makedirs(settings.upload_dir, exist_ok=True)
-    ext = os.path.splitext(filename)[1] or ".png"
-    path = os.path.join(settings.upload_dir, f"{uuid.uuid4().hex}{ext}")
-    with open(path, "wb") as f:
-        f.write(data)
-    return path
+    """上传饮食图片到存储（Supabase 或本地盘降级），返回可访问地址。"""
+    return storage.upload_image(data, filename or "upload.png", folder="diet")
 
 
 async def recognize_diet(session: AsyncSession, user_id: int, image: UploadFile) -> dict:

@@ -37,8 +37,8 @@ def _parse_sse(text: str) -> dict:
 
 
 def _auth(client):
-    client.post("/auth/register", json={"username": "tooltester", "password": "p123456"})
-    tok = client.post("/auth/login", json={"username": "tooltester", "password": "p123456"}).json()["access_token"]
+    client.post("/auth/register", json={"username": "tooltester", "password": "p1234567"})
+    tok = client.post("/auth/login", json={"username": "tooltester", "password": "p1234567"}).json()["access_token"]
     uid = client.get("/auth/me", headers={"Authorization": f"Bearer {tok}"}).json()["id"]
     return tok, uid
 
@@ -101,12 +101,23 @@ def test_execute_tool_generate_report(client):
 
 
 def test_chat_tool_loop_invokes_execute(client, monkeypatch):
-    """模型首轮发起工具调用 → 执行 → 次轮流式生成自然语言回复。"""
+    """模型首轮发起工具调用 → 执行 → 次轮流式生成自然语言回复（多轮循环）。
+
+    注意：新 AgentLoop 会反复调用 reason_stream_with_tools 直到模型不再要工具，
+    因此这里的假函数必须「有状态」——第 1 次返回工具调用，第 2 次返回最终文本，
+    否则循环会一直触发工具调用、写多条重复记录。
+    """
+    state = {"n": 0}
+
     async def fake_reason_stream_with_tools(messages, tools, tool_choice="auto"):
-        yield {"type": "tools", "calls": [
-            ToolCall(id="c1", name="log_training",
-                     arguments={"exercise_type": "游泳", "duration_min": 40, "intensity": "high"})
-        ]}
+        state["n"] += 1
+        if state["n"] == 1:
+            yield {"type": "tools", "calls": [
+                ToolCall(id="c1", name="log_training",
+                         arguments={"exercise_type": "游泳", "duration_min": 40, "intensity": "high"})
+            ]}
+        else:
+            yield {"type": "delta", "text": "好的，已帮你记录游泳 40 分钟高强度训练！"}
 
     async def fake_reason_stream(messages, tools=None):
         yield "好的，已帮你记录游泳 40 分钟高强度训练！"

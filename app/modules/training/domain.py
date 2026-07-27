@@ -1,6 +1,7 @@
 """training 模块数据模型（domain 层）。"""
 from datetime import datetime, timezone
 
+from sqlalchemy import Column, DateTime
 from sqlmodel import Field, SQLModel
 
 
@@ -23,4 +24,7 @@ class TrainingEntry(SQLModel, table=True):
     avg_hr: int = 0                # 平均心率(bpm)
     source: str = "manual"         # manual | image | keep（区分录入来源，便于分析）
     notes: str = ""
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True)),
+    )

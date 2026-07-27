@@ -4,13 +4,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.db import get_session
 from app.core.security import decode_access_token
 from app.modules.auth.domain import User
 from app.modules.auth.service import authenticate, issue_token, register
+from app.core.ratelimit import rate_limit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -20,7 +21,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 class RegisterRequest(BaseModel):
     username: str
-    password: str
+    password: str = Field(min_length=8, description="至少 8 位")
 
 
 class LoginRequest(BaseModel):
@@ -40,7 +41,8 @@ class UserPublic(BaseModel):
 
 
 @router.post(
-    "/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED
+    "/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit(5, 60, "register"))],
 )
 async def register_user(payload: RegisterRequest, session: SessionDep) -> TokenResponse:
     try:
@@ -50,7 +52,7 @@ async def register_user(payload: RegisterRequest, session: SessionDep) -> TokenR
     return TokenResponse(access_token=issue_token(user))
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse, dependencies=[Depends(rate_limit(10, 60, "login"))])
 async def login_user(payload: LoginRequest, session: SessionDep) -> TokenResponse:
     user = await authenticate(session, payload.username, payload.password)
     if user is None:

@@ -50,4 +50,6 @@ class MemoryEmbedding(SQLModel, table=True):
     text: str = ""            # 分块原文（召回时回喂给 LLM 上下文）
     vector: bytes = _make_vector_field()   # Postgres 下运行时存 list[float]，SQLite 下存打包 bytes
     model: str = ""           # 生成该向量所用的 embedding 模型名
-    created_at: datetime = Field(default_factory=_now)
+    created_at: datetime = Field(
+        default_factory=_now, sa_column=sa.Column(sa.DateTime(timezone=True))
+    )

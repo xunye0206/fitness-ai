@@ -1,22 +1,34 @@
-# M1 后端依赖（不锁死小版本，pip 解析兼容组合）
-fastapi
-uvicorn[standard]
-sqlmodel
-aiosqlite
-pydantic-settings
-python-jose[cryptography]
-passlib
-pytest
-httpx
-langgraph  # M2 引入 Agent 状态机（vision→guardrail→finalize）
-python-multipart  # 文件上传（UploadFile）依赖
-apscheduler  # M4 定时推送调度（每日固定 2 条 + 事件巡检 1 条）
-openai  # 真模型适配层 OpenAICompatibleProvider 依赖（reason/vision 走它）；fake 模式不需要
-python-dotenv  # pydantic-settings 读取 .env 必需；未装则 .env 静默忽略、回退默认 fake
+# 健身AI Agent —— 运行依赖（按 app/ 实际 import 还原，Python 3.13）
+# 安装：pip install -r requirements.txt
+# 说明：下界版本均兼容 Python 3.13；如需锁定可改为 ==x.y.z。
 
-# 生产部署（Postgres + pgvector + Redis）—— 本地/测试用 SQLite 回退时无需安装
-# 仅当 DATABASE_URL 指向 postgresql+asyncpg:// 时才需要下面三个
-asyncpg      # Postgres 异步驱动（DATABASE_URL=postgresql+asyncpg://...）
-pgvector     # pgvector 的 SQLAlchemy 类型（memory_embeddings.vector 列 / 余弦召回）
-redis        # Redis 客户端（agent 上下文热缓存 + 推送限流；未装则自动降级为无缓存）
+# ===== Web 框架 / 服务器 =====
+fastapi>=0.110
+uvicorn>=0.27
+python-multipart>=0.0.9        # FastAPI 接收 UploadFile/表单必需
 
+# ===== ORM / 数据模型 =====
+sqlmodel>=0.0.16              # 基于 SQLAlchemy，统一 SQLModel 定义
+pydantic>=2.6
+pydantic-settings>=2.2        # .env 配置读取
+
+# ===== 数据库驱动 =====
+aiosqlite>=0.19               # 本地/测试 SQLite 异步驱动（零运维）
+asyncpg>=0.29                 # 生产 PostgreSQL 异步驱动（DATABASE_URL 改 postgresql+asyncpg:// 时启用）
+pgvector>=0.2.5               # pgvector 向量类型（memory_embeddings 余弦召回，仅生产 PG 用）
+
+# ===== 鉴权 =====
+passlib[bcrypt]>=1.7.4        # 密码哈希 pbkdf2_sha256
+python-jose[cryptography]>=3.3.0   # JWT（HS256）
+
+# ===== LLM =====
+openai>=1.30                   # OpenAI 兼容协议客户端；DeepSeek / Qwen / OpenAI 均经 base_url 切换
+
+# ===== 缓存 / 调度 =====
+redis>=5.0                     # agent 上下文热缓存 + 推送限流（REDIS_URL 留空则自动降级）
+apscheduler>=3.10              # 每日固化 + 事件巡检推送调度
+
+# ===== 对象存储（图片持久化）=====
+# 生产上传到 Supabase Storage（REDER 环境配 SUPABASE_* 时启用）。
+# 本地/测试未装也不会 import 失败（storage.py 懒加载）。未配置则降级本地盘。
+supabase>=2.0

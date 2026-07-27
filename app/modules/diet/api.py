@@ -43,10 +43,10 @@ async def correct(
         entry = await correct_diet(session, current.id, entry_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    return DietEntryOut(**entry.model_dump())
+    return DietEntryOut(**entry.model_dump(), image_url=entry.image_path)
 
 
 @router.get("", response_model=list[DietEntryOut])
 async def list_entries(session: SessionDep, current: UserDep) -> list[DietEntryOut]:
     entries = await list_diet(session, current.id)
-    return [DietEntryOut(**e.model_dump()) for e in entries]
+    return [DietEntryOut(**e.model_dump(), image_url=e.image_path) for e in entries]

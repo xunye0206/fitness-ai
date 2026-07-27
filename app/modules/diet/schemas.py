@@ -33,3 +33,4 @@ class DietEntryOut(BaseModel):
     status: str
     meal_type: str = "other"
     created_at: datetime
+    image_url: str | None = None  # 上传图片的访问地址（Supabase URL 或本地路径）；无图则为空

@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     # Redis（agent 上下文热缓存 / 推送限流计数）。留空 = 不启用，自动降级（不拖主链路）
     redis_url: str = ""
 
+    # 图片存储：配置后上传到 Supabase Storage（持久，详见 app/integrations/storage.py）。
+    # 留空则降级写本地盘 data/uploads（仅限本地/测试，生产必须配，否则 redeploy 丢图）。
+    # bucket 须设为 Public，get_public_url 才能直接访问。
+    supabase_url: str = ""
+    supabase_key: str = ""
+    supabase_bucket: str = "fitness-uploads"
+
     # embedding 向量维度（Qwen text-embedding-v3 默认 1024；须与 EMBEDDING_MODEL 维度一致）
     embedding_dim: int = 1024
 

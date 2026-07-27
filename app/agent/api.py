@@ -1,13 +1,20 @@
-"""agent 横切层暴露的对外接口：AI 教练对话（支持联动其他模块）。
+"""agent 横切层对外接口：AI 教练对话（支持联动其他模块）。
 
-区别于功能模块（diet/training/...），对话是 agent 的核心交互面——
-用户直接对教练说话，教练基于「近期数据 + 护栏」作答；
-当用户意图是"记饮食/记训练/出报告"时，教练通过工具调用真正去执行这些动作。
+区别于功能模块（diet/training/...），对话是 agent 的核心交互面——用户直接对教练
+说话，教练基于「近期数据 + 护栏」作答；当用户意图是「记饮食/记训练/出报告」时，
+教练通过工具调用真正去执行这些动作。
 
 响应采用 SSE 流式输出：教练回复逐字推送给前端，避免「沉默等待」的体感卡顿。
+
+本文件只负责「编排」：组装上下文 → 交给 AgentLoop 跑（多轮工具循环）→ 合规护栏 →
+推送。真正的循环逻辑在 app.agent.loop，工具在 app.agent.coach_tools，agent 定义
+在 app.agent.agent。LLM 调用通过依赖注入进入循环（stream_with_tools /
+stream_final），因此本模块的同名函数可被测试 monkeypatch。
 """
 import json
 import logging
+import os
+import uuid
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends
@@ -15,22 +22,28 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.db import get_session
+from app.agent.agent import build_coach_agent
+from app.agent.context import build_context
 from app.agent.graph import run_diet_recognition
 from app.agent.graph_training import run_training_recognition
-from app.agent.tools import TOOLS, execute_tool
-from app.core.db import get_session
+from app.agent.guardrails import (
+    DISCLAIMER_TEXT,
+    GuardrailVerdict,
+    LLM_COMPLIANCE_CHECK,
+    check_output_safety,
+    llm_check_output_safety,
+    needs_disclaimer,
+)
+from app.agent.guardrails_coach import CoachToolGuardrail
+from app.agent.loop import AgentLoop
+from app.agent.profile import recall_profile, schedule_profile_update
+from app.agent.session import SessionManager, SqliteSessionStore, StoredMessage
+from app.agent.summarize import summarize_history
+from app.agent.tools import REGISTRY
+from app.agent.types import ToolContext
 from app.llm.base import Message
 from app.llm.router import reason, reason_stream, reason_stream_with_tools
-from app.agent.context import build_context
-from app.agent.profile import recall_profile, schedule_profile_update
-from app.agent.guardrails import (
-    check_output_safety,
-    needs_disclaimer,
-    DISCLAIMER_TEXT,
-    llm_check_output_safety,
-    LLM_COMPLIANCE_CHECK,
-    GuardrailVerdict,
-)
 from app.modules.auth.api import get_current_user
 from app.modules.auth.domain import User
 from app.modules.diet.domain import DietEntry
@@ -38,22 +51,24 @@ from app.modules.diet.domain import DietEntry
 logger = logging.getLogger("fitness_agent.agent")
 
 router = APIRouter(prefix="/agent", tags=["agent"])
+
+# 会话依赖（与 diet/training/... 模块一致的注入方式）
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
-UserDep = Annotated[User, Depends(get_current_user)]
 
-# 教练人设与硬边界（对应项目合规底线：只给建议、不做医疗诊断）
-COACH_SYSTEM_PROMPT = """你是「健身AI」的专属 AI 健身教练，是用户的中文私人教练。
+# 进程级教练 agent（声明式定义 + 工具注册表），单一实例复用
+COACH_AGENT = build_coach_agent(REGISTRY)
+COACH_SYSTEM_PROMPT = COACH_AGENT.system_prompt
 
-职责：基于用户的饮食 / 训练 / 报告数据，给出个性化、可执行、鼓励性的健身与营养建议。
-你还能直接帮用户记录饮食、记录训练、生成报告（通过工具调用自动完成）。
+# 工具护栏（执行层硬边界，弥补旧版 guardrail=None 的缺口）
+COACH_GUARDRAIL = CoachToolGuardrail(REGISTRY, max_writes_per_request=10)
 
-严格边界（务必遵守）：
-1. 你不是医生，不做任何医疗诊断、不开药、不评价病情。涉及伤痛时只建议休息并提示必要时就医。
-2. 不编造用户没有记录过的数据；一切以下方「用户近期数据」为准。
-3. 建议具体、简短、可落地，用中文口语化表达，像真人教练一样有温度、正向鼓励。
-4. 涉及热量 / 体重等敏感话题时保持正向，不制造身材焦虑。
-5. 如果用户只是闲聊或问非健身话题，友好回应并温和引导回健康话题。
-"""
+# 服务端会话管理（零成本 SQLite 持久，重启不丢；前端可选带 session_id 走服务端记忆）
+_SESSION_STORE = SqliteSessionStore()
+SESSION_MANAGER = SessionManager(_SESSION_STORE, max_tokens=6000, summarizer=summarize_history)
+
+# Agent 成本控制 / 可观测开关（环境变量可调，默认不开 debug、预算给较大值）
+AGENT_BUDGET_TOKENS = int(os.getenv("AGENT_BUDGET_TOKENS", "80000"))
+AGENT_DEBUG = os.getenv("AGENT_DEBUG", "false").lower() in ("1", "true", "yes", "是")
 
 
 class ChatIn(BaseModel):
@@ -61,16 +76,11 @@ class ChatIn(BaseModel):
     history: list[dict] = []  # 前端维护的对话历史：[{"role":"user|assistant","content":"..."}]
     image_base64: Optional[str] = None  # 可选：用户发来的图片（base64，不含 data: 前缀）
     image_mode: Optional[str] = "diet"  # 图片类型：diet=食物(默认) / training=训练截图
+    session_id: Optional[str] = None  # 可选：服务端会话 id（带则走服务端记忆）
 
 
-async def _handle_image(
-    payload: ChatIn, session: AsyncSession, user_id: int
-) -> dict:
-    """处理用户发的图片，按 image_mode 分流，返回 {note, status, training?}。
-
-    - diet 模式：走视觉管线自动建饮食记录，note 描述已记饮食（向后兼容旧行为）。
-    - training 模式：走训练识别，不落库，返回训练结构化结果供前端展示确认卡。
-    """
+async def _handle_image(payload: ChatIn, session: AsyncSession, user_id: int) -> dict:
+    """处理用户发的图片，按 image_mode 分流，返回 {note, status, training?}。"""
     mode = (payload.image_mode or "diet").lower()
     if mode == "training":
         return await _handle_training_image(payload, user_id)
@@ -150,45 +160,58 @@ async def _handle_training_image(payload: ChatIn, user_id: int) -> dict:
 
 
 @router.post("/chat")
-async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> StreamingResponse:
-    """AI 教练对话（含工具调用循环），SSE 流式输出。
+async def chat(payload: ChatIn, session: SessionDep, current: User = Depends(get_current_user)) -> StreamingResponse:
+    """AI 教练对话（多轮工具循环，SSE 流式输出）。
 
-    流程：组装上下文 → 流式推理（同时检测工具调用）→ 若模型发起工具调用则执行并回填 →
-    再流式生成最终自然语言回复。首 token 尽快到达前端，避免「思考中」长期卡顿。
-    失败（模型/网络）时优雅降级为友好提示，不抛 500。
+    流程：组装上下文 → AgentLoop（流式推理 + 工具调用 + 回填，可多轮）→ 合规护栏 +
+    免责声明。失败（模型/网络）时优雅降级为友好提示，不抛 500。
     """
     # 1) 组装上下文（近 7 天窗口；聊天场景关闭实时语义 embedding，省一轮网络往返）
     try:
-        ctx = await build_context(session, current.id, days=7, use_semantic=False)
+        ctx_text = await build_context(session, current.id, days=7, use_semantic=False)
     except Exception:
-        ctx = "（暂无可用的近期数据）"
+        ctx_text = "（暂无可用的近期数据）"
 
-    system = COACH_SYSTEM_PROMPT + "\n\n【用户近期数据】\n" + (ctx or "（暂无记录）")
+    system = COACH_SYSTEM_PROMPT + "\n\n【用户近期数据】\n" + (ctx_text or "（暂无记录）")
     messages: list[Message] = [Message(role="system", content=system)]
-    # 2) 带入最近若干轮历史（避免上下文过长）
-    for h in (payload.history or [])[-4:]:
-        role = h.get("role")
-        content = h.get("content")
-        if role in ("user", "assistant") and content:
-            messages.append(Message(role=role, content=content))
-    # 注意：用户消息（含图片处理结果）在 event_gen 内部追加，
+
+    # 2) 历史：带 session_id → 服务端记忆；否则兼容前端 history（取最近 4 轮）
+    if payload.session_id:
+        stored = await SESSION_MANAGER.get_history(payload.session_id)
+        for m in stored:
+            messages.append(
+                Message(
+                    role=m.role,
+                    content=m.content,
+                    tool_calls=m.tool_calls,
+                    tool_call_id=m.tool_call_id,
+                    name=m.name,
+                )
+            )
+    else:
+        for h in (payload.history or [])[-4:]:
+            role = h.get("role")
+            content = h.get("content")
+            if role in ("user", "assistant") and content:
+                messages.append(Message(role=role, content=content))
+    # 注：用户消息（含图片处理结果）在 event_gen 内部追加，
     # 因为图片识别是耗时操作，需要在 SSE 流中先推送状态再拼接消息。
+
+    request_id = uuid.uuid4().hex  # 本次对话唯一 id，贯穿日志追踪
 
     def _sse(obj: dict) -> str:
         return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
     async def event_gen():
         actions: list[str] = []
-        full_reply = ""  # 累积教练最终回复，用于输出合规检测（里程碑2）
+        full_reply = ""  # 累积教练最终回复，用于输出合规检测
         try:
-            # 2.5) 图片处理（在流式推理之前，同步完成；通过 SSE 通知前端状态）
+            # 2.5) 图片处理（流式推理之前同步完成；通过 SSE 通知前端状态）
             if payload.image_base64:
                 yield _sse({"type": "status", "text": "正在识别图片…"})
                 img_res = await _handle_image(payload, session, current.id)
                 image_note = img_res.get("note", "")
-                # 通知前端识别状态
                 yield _sse({"type": "status", "text": img_res.get("status", "")})
-                # 训练模式：推送结构化识别结果，前端渲染确认卡（确认才入库）
                 if img_res.get("training"):
                     yield _sse({"type": "training_recognition", "recognition": img_res["training"]})
             else:
@@ -197,7 +220,7 @@ async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> Stream
             user_text = (payload.message or "").strip()
             user_content = (user_text + "\n" + image_note).strip()
 
-            # 2.7) M10 长期画像召回：用用户当前发言定向语义召回，注入教练上下文做个性化
+            # 2.7) 长期画像召回：用用户当前发言定向语义召回，注入上下文做个性化
             try:
                 profile_hits = await recall_profile(session, current.id, user_content, k=3)
             except Exception:
@@ -214,41 +237,32 @@ async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> Stream
 
             messages.append(Message(role="user", content=user_content))
 
-            # 3) 流式推理，同时检测工具调用（首 token 立即推送）
-            tool_calls = None
-            async for ev in reason_stream_with_tools(messages, TOOLS):
-                if ev.get("type") == "delta":
-                    if ev.get("text"):
-                        full_reply += ev["text"]
-                        yield _sse({"type": "delta", "text": ev["text"]})
-                elif ev.get("type") == "tools":
-                    tool_calls = ev.get("calls")
+            # 3) 交给 AgentLoop 跑：多轮工具循环 + 流式输出
+            loop = AgentLoop(
+                stream_with_tools=reason_stream_with_tools,
+                stream_final=reason_stream,
+                registry=REGISTRY,
+                max_iterations=COACH_AGENT.max_iterations,
+                guardrail=COACH_GUARDRAIL,       # 执行层硬边界（黑名单/破坏性确认/回写上限）
+                budget_tokens=AGENT_BUDGET_TOKENS,  # 超预算强制收尾，防失控烧钱
+                debug=AGENT_DEBUG,                   # 开启后每轮打 debug 日志（可观测）
+            )
+            tool_ctx = ToolContext(user_id=current.id, session=session, request_id=request_id)
+            async for ev in loop.run(messages, tool_ctx):
+                if ev.type == "delta":
+                    if ev.text:
+                        full_reply += ev.text
+                        yield _sse({"type": "delta", "text": ev.text})
+                elif ev.type == "action":
+                    actions.append(ev.text)
+                    yield _sse({"type": "action", "text": ev.text})
 
-            # 4) 若模型发起工具调用，执行并回填，再流式生成最终回复
-            if tool_calls:
-                # 过滤无效工具调用（name 为空/None 的中间态片段）
-                valid_calls = [tc for tc in tool_calls if tc.name]
-                if valid_calls:
-                    messages.append(
-                        Message(role="assistant", content="", tool_calls=valid_calls)
-                    )
-                    for tc in valid_calls:
-                        outcome = await execute_tool(tc.name, tc.arguments, session, current.id)
-                        # 只推送成功的动作给前端（"未知工具/执行失败"不展示）
-                        if not outcome.startswith("未知工具") and not outcome.startswith("工具"):
-                            actions.append(outcome)
-                            yield _sse({"type": "action", "text": outcome})
-                        messages.append(
-                            Message(role="tool", content=outcome, tool_call_id=tc.id, name=tc.name)
-                        )
-                # 最终回复流式输出
-                async for chunk in reason_stream(messages):
-                    if chunk:
-                        full_reply += chunk
-                        yield _sse({"type": "delta", "text": chunk})
+            logger.info(
+                "Agent 对话完成 rid=%s user=%d 近似输入token≈%d",
+                request_id, current.id, loop.total_input_tokens,
+            )
 
-            # 5) 输出合规检测 + 免责声明（里程碑2：对应《策划书》§六/§七、代码规范 §6/§12）
-            # 关键词检测 + LLM 语义复核双保险；任一命中越界即补提示，未含免责则补声明。
+            # 4) 输出合规检测 + 免责声明
             safety = check_output_safety(full_reply)
             llm_safety = (
                 await llm_check_output_safety(full_reply, reason)
@@ -262,8 +276,22 @@ async def chat(payload: ChatIn, session: SessionDep, current: UserDep) -> Stream
             if not needs_disclaimer(full_reply):
                 yield _sse({"type": "delta", "text": "\n\n" + DISCLAIMER_TEXT})
 
-            # 6) M10 长期画像记忆后台更新：fire-and-forget，不阻塞 SSE 流返回
+            # 5) 长期画像记忆后台更新（fire-and-forget，不阻塞 SSE 流返回）
             schedule_profile_update(current.id, user_text, full_reply)
+
+            # 6) 若带 session_id，把本轮用户发言与最终回复持久化到服务端会话
+            if payload.session_id:
+                await SESSION_MANAGER.append(
+                    payload.session_id, StoredMessage(role="user", content=user_content)
+                )
+                await SESSION_MANAGER.append(
+                    payload.session_id, StoredMessage(role="assistant", content=full_reply)
+                )
+                # 超预算时压缩为摘要（只在超预算才烧一次 LLM，正常不触发）
+                try:
+                    await SESSION_MANAGER.compact_if_needed(payload.session_id)
+                except Exception as exc:
+                    logger.warning("会话压缩失败（已忽略，不影响本次回复）：%s", exc)
 
             yield _sse({"type": "done", "ok": True})
         except Exception as exc:

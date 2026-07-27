@@ -26,7 +26,13 @@ from app.config import get_settings
 get_settings.cache_clear()  # 让 settings 用上面覆盖的测试值
 
 from app.main import app  # noqa: E402  (必须在 env/cache 设置后导入)
+from app.core import ratelimit  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+
+# 测试进程内关闭登录/注册限流：所有测试共用 127.0.0.1，
+# 累计 register 调用会超 5/60s 阈值误伤正常用例。限流本身由
+# tests/test_ratelimit.py 单独验证（该用例内临时开启）。
+ratelimit.set_enabled(False)
 from sqlmodel import SQLModel  # noqa: E402
 
 

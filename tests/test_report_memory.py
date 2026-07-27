@@ -15,8 +15,8 @@ from app.modules.report.service import generate_report
 
 
 def _auth(client):
-    client.post("/auth/register", json={"username": "vectester", "password": "p123456"})
-    tok = client.post("/auth/login", json={"username": "vectester", "password": "p123456"}).json()["access_token"]
+    client.post("/auth/register", json={"username": "vectester", "password": "p1234567"})
+    tok = client.post("/auth/login", json={"username": "vectester", "password": "p1234567"}).json()["access_token"]
     uid = client.get("/auth/me", headers={"Authorization": f"Bearer {tok}"}).json()["id"]
     return tok, uid
 

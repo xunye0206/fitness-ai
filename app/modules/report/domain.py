@@ -5,6 +5,7 @@ wiki 只放画像/反思/洞察，不存逐日报告明细。
 """
 from datetime import datetime, timezone
 
+from sqlalchemy import Column, DateTime
 from sqlmodel import Field, SQLModel
 
 
@@ -19,4 +20,7 @@ class DailyReport(SQLModel, table=True):
     advice: str = ""         # 建议（均附数据依据，非医疗诊断）
     raw_context: str = ""    # 生成时喂给模型的 7 天上下文（可追溯，便于复盘）
     model: str = "fake"      # 实际使用的推理 provider 名
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True)),
+    )

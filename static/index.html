@@ -12,8 +12,8 @@
   --topbar-h:  56px;
   --card-bg:   #FFFFFF;
   --text:      #1F2937;
-  --text2:     #6B7280;
-  --text3:     #9CA3AF;
+  --text2:     #5F6772;
+  --text3:     #6B7280;
   --border:    #E5E7EB;
   --accent:    #10B981;
   --accent2:   #3B82F6;
@@ -217,7 +217,7 @@ button.ghost:hover { background:#F3F4F6; }
 .result-box li { margin:2px 0; line-height:1.7; }
 .result-box strong { color:var(--text); font-weight:600; }
 .result-box code { background:rgba(0,0,0,.06); padding:1px 5px; border-radius:3px; font-size:12px; }
-.result-box blockquote { margin:8px 0; padding:4px 10px; border-left:3px solid var(--primary); background:rgba(99,102,241,.05); }
+.result-box blockquote { margin:8px 0; padding:4px 10px; border-left:3px solid var(--accent); background:rgba(16,185,129,.08); }
 
 /* --- Tables --- */
 .list-table { width:100%; border-collapse:collapse; margin-top:10px; font-size:13px; }
@@ -406,6 +406,115 @@ button.ghost:hover { background:#F3F4F6; }
   .main { padding:16px; }
 }
 
+/* === UI Designer hardening: theme / a11y / mobile / motion === */
+
+/* Theme toggle button (topbar) */
+.topbar-btn {
+  width:36px; height:36px; border-radius:50%;
+  border:1px solid var(--border); background:var(--card-bg);
+  cursor:pointer; font-size:16px; color:var(--text2);
+  display:flex; align-items:center; justify-content:center;
+  transition:all .15s; flex-shrink:0;
+}
+.topbar-btn:hover { background:var(--bg); color:var(--text); }
+
+/* Mobile bottom tab bar (replaces the hidden sidebar on small screens) */
+.mobile-tabbar { display:none; }
+@media(max-width:768px) {
+  .mobile-tabbar {
+    display:flex; position:fixed; left:0; right:0; bottom:0; z-index:50;
+    height:58px; background:var(--card-bg); border-top:1px solid var(--border);
+    padding:4px 6px calc(4px + env(safe-area-inset-bottom));
+    justify-content:space-around; align-items:stretch;
+  }
+  .mtab-item {
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:2px; cursor:pointer; color:var(--text2); font-size:11px; user-select:none;
+    border:none; background:transparent; border-radius:10px; transition:color .15s;
+    padding:4px 2px;
+  }
+  .mtab-item .mi-icon { font-size:18px; line-height:1; }
+  .mtab-item.active { color:var(--accent); }
+  .mtab-item.active .mi-icon { transform:translateY(-1px); }
+  .main { padding-bottom:74px; }
+}
+
+/* Keyboard focus ring (WCAG) */
+a:focus-visible, button:focus-visible, .nav-item:focus-visible,
+select:focus-visible, input:focus-visible, textarea:focus-visible,
+.icon-btn:focus-visible, .mtab-item:focus-visible, .topbar-btn:focus-visible {
+  outline:2px solid var(--accent); outline-offset:2px; border-radius:6px;
+}
+
+/* Typing indicator (three dots) shown while the coach is "thinking" */
+.typing { display:inline-flex; gap:4px; align-items:center; padding:2px 0; }
+.typing span {
+  width:6px; height:6px; border-radius:50%; background:var(--text3);
+  animation:typingBounce 1.2s infinite ease-in-out;
+}
+.typing span:nth-child(2){ animation-delay:.15s; }
+.typing span:nth-child(3){ animation-delay:.3s; }
+@keyframes typingBounce {
+  0%,60%,100%{ transform:translateY(0); opacity:.4; }
+  30%{ transform:translateY(-4px); opacity:1; }
+}
+
+/* Skeleton shimmer (loading state of lists / reminders) */
+.skeleton {
+  height:14px; border-radius:6px; margin:8px 0;
+  background:linear-gradient(90deg,var(--border) 25%,var(--bg) 37%,var(--border) 63%);
+  background-size:400% 100%; animation:shimmer 1.3s infinite;
+}
+@keyframes shimmer { 0%{ background-position:100% 0; } 100%{ background-position:-100% 0; } }
+
+/* Respect users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration:.001ms !important; animation-iteration-count:1 !important;
+    transition-duration:.001ms !important; scroll-behavior:auto !important;
+  }
+}
+
+/* ====== Dark Theme ====== */
+[data-theme="dark"] {
+  --bg:        #0E141A;
+  --card-bg:   #161E26;
+  --text:      #E6E9ED;
+  --text2:     #9AA4B2;
+  --text3:     #6B7785;
+  --border:    #26313C;
+  --accent:    #34D399;
+  --accent2:   #60A5FA;
+  --shadow:    0 1px 3px rgba(0,0,0,.4), 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.5);
+}
+[data-theme="dark"] body { background:var(--bg); }
+[data-theme="dark"] .sidebar,
+[data-theme="dark"] .topbar { background:var(--card-bg); border-color:var(--border); }
+[data-theme="dark"] .nav-item:hover { background:#1E2730; }
+[data-theme="dark"] .nav-item.active { background:rgba(52,211,153,.14); color:#6EE7B7; border-left-color:var(--accent); }
+[data-theme="dark"] .user-btn { background:#26313C; }
+[data-theme="dark"] .user-btn:hover { background:#2F3B47; }
+[data-theme="dark"] input, [data-theme="dark"] select, [data-theme="dark"] textarea {
+  background:#0E141A; color:var(--text); border-color:var(--border);
+}
+[data-theme="dark"] .chat-msg.bot .bubble { background:#222C36; color:var(--text); }
+[data-theme="dark"] .chat-msg.user .bubble { color:#06281E; }
+[data-theme="dark"] .file-upload { background:#11181F; }
+[data-theme="dark"] .file-upload:hover { background:rgba(52,211,153,.1); }
+[data-theme="dark"] .list-table th { background:#1A222B; color:var(--text2); }
+[data-theme="dark"] .list-table tr:hover td { background:#11181F; }
+[data-theme="dark"] .reminder-item { background:var(--card-bg); }
+[data-theme="dark"] .modal { background:var(--card-bg); }
+[data-theme="dark"] .card { background:var(--card-bg); }
+[data-theme="dark"] .metric { background:var(--bg); }
+[data-theme="dark"] .empty-state { color:var(--text3); }
+[data-theme="dark"] .welcome-banner { background:linear-gradient(135deg,#13332A,#0F2A22); border-color:#1E5C49; }
+[data-theme="dark"] .welcome-banner h2 { color:#6EE7B7; }
+[data-theme="dark"] .welcome-banner p { color:#9FD9C4; }
+[data-theme="dark"] .result-box h1,.result-box h2,.result-box h3,.result-box strong { color:var(--text); }
+[data-theme="dark"] .mtab { color:var(--text2); }
+
 /* --- Utility --- */
 .hidden { display:none !important; }
 .text-center { text-align:center; }
@@ -458,6 +567,15 @@ button.ghost:hover { background:#F3F4F6; }
   </nav>
 </aside>
 
+<!-- Mobile bottom tab bar (only visible on small screens; replaces the hidden sidebar) -->
+<nav class="mobile-tabbar" aria-label="主导航">
+  <button type="button" class="mtab-item" data-page="coach" onclick="navigate('coach')"><span class="mi-icon">🤖</span>教练</button>
+  <button type="button" class="mtab-item" data-page="diet" onclick="navigate('diet')"><span class="mi-icon">🍽️</span>饮食</button>
+  <button type="button" class="mtab-item" data-page="training" onclick="navigate('training')"><span class="mi-icon">🏋️</span>训练</button>
+  <button type="button" class="mtab-item" data-page="report" onclick="navigate('report')"><span class="mi-icon">📊</span>报告</button>
+  <button type="button" class="mtab-item" data-page="reminders" onclick="navigate('reminders')"><span class="mi-icon">🔔</span>提醒</button>
+  <button type="button" class="mtab-item" data-page="settings" onclick="navigate('settings')"><span class="mi-icon">⚙️</span>设置</button>
+</nav>
 
 <!-- ==================== MAIN AREA ==================== -->
 <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
@@ -468,6 +586,7 @@ button.ghost:hover { background:#F3F4F6; }
       <span class="page-title" id="topTitle">AI 教练</span>
     </div>
     <div class="topbar-right">
+      <button type="button" class="topbar-btn" id="themeToggle" onclick="toggleTheme()" title="切换深色 / 浅色">🌓</button>
       <button class="user-btn" id="topUserBtn" onclick="openLoginModal()" title="登录 / 注册">
         &#128100;
       </button>
@@ -613,15 +732,14 @@ button.ghost:hover { background:#F3F4F6; }
       </div>
       <div class="chat-input-bar">
         <button class="icon-btn" id="chatAttachBtn" title="发送图片（饮食/训练）" onclick="document.getElementById('chatFile').click()">&#128247;</button>
-        <select id="chatImgMode" class="chat-mode-select" title="图片类型：饮食=让教练记录饮食，训练=识别训练截图后确认保存" style="max-width:62px;font-size:12px;padding:4px 2px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text1)">
+        <select id="chatImgMode" class="chat-mode-select" title="图片类型：饮食=让教练记录饮食，训练=识别训练截图后确认保存" style="max-width:88px;min-width:84px;font-size:12px;padding:6px 8px;border-radius:8px;border:1px solid var(--border)">
           <option value="diet">饮食</option>
           <option value="training">训练</option>
         </select>
         <input type="file" id="chatFile" accept="image/*" style="display:none" onchange="onChatImage(this)">
         <input type="text" id="chatInput" placeholder="输入你想问教练的话…（可附图片：饮食让教练记录，训练截图识别后确认保存）" onkeydown="if(event.key==='Enter')doChat()">
-        <button class="primary" id="chatSendBtn" onclick="requireAuth(doChat)">发送</button>
+        <button type="button" class="primary" id="chatSendBtn" onclick="requireAuth(doChat)">发送</button>
       </div>
-      <div id="chatResult" class="result-box" style="position:absolute;bottom:64px;left:16px;right:16px;z-index:5;"></div>
     </div>
 
     <!-- ========== PAGE: REMINDERS (agent 主动提醒) ========== -->
@@ -720,6 +838,9 @@ const PAGE_TITLES = {
 
 function navigate(page) {
   document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.page === page);
+  });
+  document.querySelectorAll('.mtab-item').forEach(el => {
     el.classList.toggle('active', el.dataset.page === page);
   });
   document.querySelectorAll('.page').forEach(el => {
@@ -1139,7 +1260,8 @@ async function doChat(){
   chatHistory.push({role:'user', content: text || '[发送了食物图片]'});
   input.value=''; clearChatImage();
   const btn=document.getElementById('chatSendBtn'); btn.disabled=true;
-  const bubble=appendChat('bot','教练正在思考…');
+  const bubble=appendChat('bot','');
+  bubble.innerHTML='<div class="typing"><span></span><span></span><span></span></div>';
   const box=document.getElementById('chatBox');
   const body={message:text, history:chatHistory.slice(0,-1)};
   if(img) body.image_base64=img.base64;
@@ -1252,7 +1374,7 @@ async function confirmTrainingFromChat(){
 // ---------- Reminders: Agent 主动推送 ----------
 async function loadReminders(){
   const el=document.getElementById('reminderList');
-  el.innerHTML='<div class="empty-state"><p>加载中…</p></div>';
+  el.innerHTML='<div class="skeleton" style="width:92%"></div><div class="skeleton" style="width:78%"></div><div class="skeleton" style="width:85%"></div><div class="skeleton" style="width:64%"></div>';
   try{
     const r=await fetch(API+'/push',{headers:apiHeaders()});
     if(!handle401(r))return;
@@ -1288,7 +1410,7 @@ async function _loadList(url,elId,fmtFn){
 }
 
 function _fmtDiet(x,isHead){
-  if(isHead) return '<th>时间</th><th>餐次</th><th>食物</th><th>热量</th><th>蛋白</th><th>碳水</th><th>脂肪</th><th>状态</th>';
+  if(isHead) return '<th>时间</th><th>餐次</th><th>食物</th><th>热量</th><th>蛋白</th><th>碳水</th><th>脂肪</th><th>状态</th><th>图片</th>';
   const mealMap={breakfast:'早餐',lunch:'午餐',afternoon_tea:'下午茶',dinner:'晚餐',midnight_snack:'宵夜',other:'其他'};
   // 旧数据 meal_type 为 'other' 时，前端按记录时间动态推断餐次
   let meal=mealMap[x.meal_type]||x.meal_type||'其他';
@@ -1302,8 +1424,11 @@ function _fmtDiet(x,isHead){
     else meal='宵夜';
   }
   const t=x.created_at?new Date(x.created_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'-';
+  const imgCell = x.image_url
+    ? '<td><a href="'+esc(x.image_url)+'" target="_blank"><img src="'+esc(x.image_url)+'" style="max-width:64px;border-radius:6px;"></a></td>'
+    : '<td>—</td>';
   return '<tr><td>'+t+'</td><td>'+meal+'</td><td>'+esc(x.name)+'</td><td>'+x.calories+'</td><td>'+x.protein_g+'g</td><td>'+x.carbs_g+'g</td><td>'+x.fat_g+'g</td>'
-    +'<td>'+(x.status==='confirmed'?'<span class="tag green">确认</span>':'<span class="tag amber">'+esc(x.status)+'</span>')+'</td></tr>';
+    +'<td>'+(x.status==='confirmed'?'<span class="tag green">确认</span>':'<span class="tag amber">'+esc(x.status)+'</span>')+'</td>'+imgCell+'</tr>';
 }
 function _fmtTraining(x,isHead){
   if(isHead) return '<th>日期</th><th>运动</th><th>时长</th><th>强度</th><th>消耗</th><th>距离</th><th>组数×次数</th><th>心率</th><th>备注</th>';
@@ -1350,25 +1475,34 @@ function showResult(id,text,type){
  */
 function renderMd(raw){
   if(!raw) return '';
-  var h=String(raw);
-  // 1) 先处理代码行（避免被后续规则误解析）——简单行内反引号
-  h=h.replace(/`([^`\n]+)`/g,'<code>$1</code>');
-  // 2) 标题 ## / ** （保留换行）
-  h=h.replace(/^###\s+(.+)$/gm,'<h3>$1</h3>');
-  h=h.replace(/^##\s+(.+)$/gm,'<h2>$1</h2>');
-  h=h.replace(/^#\s+(.+)$/gm,'<h1>$1</h1>');
-  // 3) **加粗**（不能跨行）
-  h=h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
-  // 4) 无序列表 - item（必须独占一行开头）
-  h=h.replace(/^[ \t]*[-*+]\s+(.+)$/gm,'<li>$1</li>');
-  // 5) 将连续 <li> 包裹在 <ul> 中
-  h=h.replace(/((?:<li>.*<\/li>(?:\n|$))+)/g,'<ul>$1</ul>');
-  // 6) 引用块 > 开头
-  h=h.replace(/^>\s+(.+)$/gm,'<blockquote>$1</blockquote>');
-  // 7) 段落：两个以上连续换行 → 分段；单个换行转 <br>
-  h=h.replace(/\n{2,}/g,'</p><p>');
-  h=h.replace(/\n/g,'<br>');
-  return '<p>'+h+'</p>';
+  // 1) 行内代码先保护，避免被标题/列表规则误伤
+  var src = String(raw).replace(/`([^`\n]+)`/g,'<code>$1</code>');
+  // 2) 按空行切成块，逐块识别（避免 <p><h2>…</h2></p> 这种非法嵌套）
+  var blocks = src.split(/\n{2,}/);
+  var out = [];
+  for (var bi=0; bi<blocks.length; bi++){
+    var block = blocks[bi].replace(/\s+$/,'');
+    if(!block.trim()) continue;
+    var bold = function(s){ return s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>'); };
+    var m;
+    if ((m = block.match(/^###\s+(.+)$/))) { out.push('<h3>'+bold(m[1])+'</h3>'); continue; }
+    if ((m = block.match(/^##\s+(.+)$/)))  { out.push('<h2>'+bold(m[1])+'</h2>'); continue; }
+    if ((m = block.match(/^#\s+(.+)$/)))   { out.push('<h1>'+bold(m[1])+'</h1>'); continue; }
+    // 引用块（可能跨多行 >）
+    if (/^>\s?/.test(block)) {
+      var q = block.replace(/^>\s?/gm,'').replace(/\n/g,'<br>');
+      out.push('<blockquote>'+bold(q)+'</blockquote>'); continue;
+    }
+    // 无序列表
+    if (/^[ \t]*[-*+]\s+/.test(block)) {
+      var items = block.split('\n').map(function(l){ return l.replace(/^[ \t]*[-*+]\s+/,''); });
+      out.push('<ul><li>'+items.map(bold).join('</li><li>')+'</li></ul>'); continue;
+    }
+    // 普通段落：单换行转 <br>
+    var para = bold(block).replace(/\n/g,'<br>');
+    out.push('<p>'+para+'</p>');
+  }
+  return out.join('');
 }
 
 function showAuthMsg(text,type){
@@ -1380,7 +1514,22 @@ function clearAuthMsg(){
   el.className='result-box modal-msg';el.innerHTML='';
 }
 
+// ---------- Theme: init + toggle ----------
+function applyInitialTheme(){
+  const saved=localStorage.getItem('fit_theme');
+  if(saved){ document.documentElement.dataset.theme=saved; }
+  else if(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches){
+    document.documentElement.dataset.theme='dark';
+  }
+}
+function toggleTheme(){
+  const next = document.documentElement.dataset.theme==='dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme=next;
+  localStorage.setItem('fit_theme', next);
+}
+
 // ---------- Init ----------
+applyInitialTheme();
 checkHealth();
 setInterval(checkHealth,15000);
 
