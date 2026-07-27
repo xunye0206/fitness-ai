@@ -32,9 +32,11 @@ _DATABASE_URL = _normalize_db_url(settings.database_url)
 
 # 托管 Postgres（Supabase / Neon 等）通常强制 SSL；asyncpg 默认不启用，
 # 不显式开启会在 TLS 握手阶段报错。仅对 Postgres dialect 生效，SQLite 忽略。
+# 用 "require"：加密传输但不校验证书链（pooler 证书链在轻量容器里验不过，
+# Supabase 官方即推荐 require 模式）。
 _connect_args: dict = {}
 if _DATABASE_URL.startswith("postgresql"):
-    _connect_args["ssl"] = True
+    _connect_args["ssl"] = "require"
 
 engine = create_async_engine(
     _DATABASE_URL,
