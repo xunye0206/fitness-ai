@@ -1,7 +1,7 @@
-"""工具注册表（对应 OpenCode「构造注入 []BaseTool」模式）。
+"""工具注册表（参考 OpenCode「构造注入 []BaseTool」模式实现）。
 
 单一数据源：工具在此注册一次，既供 AgentLoop 调度执行，也供 API 层生成 TOOLS
-schema，避免旧版「TOOLS 列表」与「execute_tool 分发」两处各自维护、易脱节的坑。
+schema，避免工具定义与调度两处维护脱节。
 """
 from typing import Optional
 

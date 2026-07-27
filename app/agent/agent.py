@@ -1,9 +1,8 @@
-"""声明式 Agent 定义（对应 OpenCode 的 config.Agent + GetAgentPrompt）。
+"""声明式 Agent 定义（参考 OpenCode 的 config.Agent + GetAgentPrompt 实现）。
 
-旧版把「谁是教练、用哪些工具、系统提示词写死在哪」散落在 API 代码里。这里把它
-抽成一个数据驱动的定义：一个 AgentConfig 描述名字 / 提示词 / 可用工具名 / 循环
-上限，FitnessCoachAgent 只是这个配置 + 工具注册表的薄封装。要加一个新 agent
-（比如未来的「计划 agent」「研究 agent」）只需再写一个 config，无需改循环。
+Agent 定义与循环/工具解耦：一个 AgentConfig 描述名字 / 提示词 / 可用工具名 /
+循环上限，FitnessCoachAgent 只是这个配置 + 工具注册表的薄封装。要加一个新
+agent（如计划 agent、研究 agent）只需再写一个 config，无需改循环。
 """
 from dataclasses import dataclass
 

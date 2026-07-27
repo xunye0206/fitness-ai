@@ -3,9 +3,6 @@
 每个工具是一个独立、可插拔的单元（继承 Tool），在 register_coach_tools 里统一
 注册进 ToolRegistry。要新增一个能力（如 schedule_push / query_weight），只需写
 一个 Tool 子类并在此注册，AgentLoop 与 LLM schema 会自动感知——无需动循环或 API。
-
-旧版的 execute_tool 用一长串 if/elif 分发；现在用注册表替代，消除了「加工具要改
-三处」的脆弱写法。
 """
 from app.agent.registry import ToolRegistry
 from app.agent.coach_tools.diet import LogDietFromTextTool

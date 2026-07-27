@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
         )
     # 生产防呆：Render 平台会自动注入 RENDER 环境变量。若部署在 Render 却仍用
     # 默认 SQLite 本地盘，用户数据会写进临时磁盘，redeploy/重启一次全没（静默丢数据）。
-    # 与上面 jwt_secret 同类型的"看起来能跑、实则埋雷"坑，这里对称加固。
+    # 与 jwt_secret 同类部署风险：默认 SQLite 在 Render 上重启即丢数据，此处对称加固。
     if os.environ.get("RENDER") and settings.database_url.startswith("sqlite"):
         raise RuntimeError(
             "⚠️ 运行在 Render 但未配置 DATABASE_URL（仍为本地 SQLite）。"

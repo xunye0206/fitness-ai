@@ -43,7 +43,7 @@ def upload_image(data: bytes, filename: str, folder: str = "uploads") -> str:
         )
         return client.storage.from_(settings.supabase_bucket).get_public_url(key)
 
-    # 降级：本地盘（与改造前行为一致）
+    # 降级：本地盘（与对象存储路径保持兼容）
     os.makedirs(settings.upload_dir, exist_ok=True)
     path = os.path.join(settings.upload_dir, f"{uuid.uuid4().hex}{ext}")
     with open(path, "wb") as f:

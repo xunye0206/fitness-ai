@@ -1,13 +1,12 @@
 """教练 Agent 的默认工具护栏（执行层硬边界）。
 
-弥补旧版 `AgentLoop(guardrail=None)` 的缺口——之前 `ToolGuardrail` 这个
-设计好的边界**根本没接实例**，任何工具被模型选中就直接执行。
+AgentLoop 默认不传护栏时工具无边界校验；本护栏在执行层补上黑名单 / 破坏性确认
+/ 回写上限等硬边界，对应 OpenCode 的 permission 中间件思路：
 
-对应 OpenCode 的 permission 中间件思路：
 - 黑名单：永不许模型触发的工具（如未来出现的 delete_*）。
 - 破坏性需确认：is_destructive 工具必须带 confirmed=true 才放行。
 - 单轮回写上限：模型若在工具循环里反复触发写库，达到上限后拦截，
-  防 DB 被刷爆 + 防失控烧钱（直接服务「成本控制」维度）。
+  防止数据库被刷爆，同时约束单轮工具调用的成本。
 
 本护栏是有状态的（每请求建一个实例，_writes 计数在本轮内有效）。
 """
@@ -41,7 +40,7 @@ class CoachToolGuardrail(ToolGuardrail):
         if tool.is_destructive() and not (arguments or {}).get("confirmed"):
             return f"工具 {name} 为破坏性操作，需带 confirmed=true 确认后执行"
 
-        # 3) 单轮回写上限（防失控刷库 / 烧钱）
+        # 3) 单轮回写上限（防失控刷库）
         if tool.is_write():
             if self._writes >= self._max_writes:
                 return f"本轮回写已达上限（{self._max_writes}），为避免失控已暂停写库"

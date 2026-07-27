@@ -1,8 +1,8 @@
-"""工具抽象（对应 OpenCode 的 BaseTool 接口）。
+"""工具抽象（参考 OpenCode 的 BaseTool 接口实现）。
 
 每个工具是一个「能力单元」：有名字、描述、参数 JSON schema，以及一个 run 方法。
 Agent 通过 ToolRegistry 按名字找到工具并执行；工具本身不感知循环 / 提示词 /
-LLM，从而可插拔、可单独测试。这正是它比旧版「裸 dict + if/elif 分发」更干净之处。
+LLM，从而可插拔、可单独测试。
 """
 from abc import ABC, abstractmethod
 from typing import Any, Optional
@@ -37,7 +37,7 @@ class Tool(ABC):
         """
 
     # 以下两个为「可执行能力的元数据」，默认 False，子类按需覆盖。
-    # 不设为 abstractmethod——旧/未声明的工具无需改即可继续工作。
+    # 不设为 abstractmethod——已有工具子类无需改动即可继续工作。
     def is_destructive(self) -> bool:
         """是否为破坏性操作（如删除/覆盖）。默认 False。
 
@@ -49,7 +49,7 @@ class Tool(ABC):
         """是否写库（产生持久化副作用）。默认 False。
 
         护栏据此做「单轮回写上限」防失控——模型若在工具循环里
-        反复触发写工具，会在达到上限后被拦截，避免 DB 被刷爆 + 烧钱。
+        反复触发写工具，会在达到上限后被拦截，避免数据库被刷爆。
         """
         return False
 

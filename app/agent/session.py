@@ -1,7 +1,7 @@
-"""服务端会话管理（对应 OpenCode 的 Session + 压缩指针模式）。
+"""服务端会话管理（参考 OpenCode 的 Session + 压缩指针模式实现）。
 
-旧版把对话历史完全交给前端（payload.history）传来传去，服务器无状态、长对话会
-越攒越长、且换设备/刷新就丢。这里引入可服务端托管的会话：
+对话历史由服务端持久化托管（SessionStore + SessionManager），支持长对话压缩
+与跨设备一致性，前端不再需要持有完整历史：
 
 - SessionStore：历史持久化位置（内存实现 / SQLite 实现）。
 - SessionManager：追加/读取历史；当 token 估算超预算时，用 summarizer 把整段

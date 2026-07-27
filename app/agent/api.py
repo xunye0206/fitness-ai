@@ -59,7 +59,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 COACH_AGENT = build_coach_agent(REGISTRY)
 COACH_SYSTEM_PROMPT = COACH_AGENT.system_prompt
 
-# 工具护栏（执行层硬边界，弥补旧版 guardrail=None 的缺口）
+# 工具护栏（执行层硬边界：黑名单 / 破坏性确认 / 回写上限）
 COACH_GUARDRAIL = CoachToolGuardrail(REGISTRY, max_writes_per_request=10)
 
 # 服务端会话管理（零成本 SQLite 持久，重启不丢；前端可选带 session_id 走服务端记忆）
@@ -244,7 +244,7 @@ async def chat(payload: ChatIn, session: SessionDep, current: User = Depends(get
                 registry=REGISTRY,
                 max_iterations=COACH_AGENT.max_iterations,
                 guardrail=COACH_GUARDRAIL,       # 执行层硬边界（黑名单/破坏性确认/回写上限）
-                budget_tokens=AGENT_BUDGET_TOKENS,  # 超预算强制收尾，防失控烧钱
+                budget_tokens=AGENT_BUDGET_TOKENS,  # 超预算强制收尾，约束单轮成本
                 debug=AGENT_DEBUG,                   # 开启后每轮打 debug 日志（可观测）
             )
             tool_ctx = ToolContext(user_id=current.id, session=session, request_id=request_id)

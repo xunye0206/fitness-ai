@@ -1,26 +1,18 @@
-"""Agent 核心循环（对应 OpenCode 的 agent.go processGeneration）。
+"""Agent 核心循环（参考 OpenCode 的 agent.go processGeneration 实现）。
 
-这是整个 agent 的心脏，也是旧版最「糙」的地方——旧版只在 API 里做了「单次」
-工具检测：模型一轮发起工具调用就执行一次、然后直接出最终回复，无法多轮联动
-（例如先查报告再据其给建议）。这里改成真正可迭代的循环：
-
-    for 每一轮（上限 max_iterations）:
-        流式调 LLM（带工具 schema），边收边把文本 delta 推出去
-        若模型发起工具调用 → 经注册表 + 护栏执行 → 结果作为 tool 消息回灌
-        若没有工具调用 → 说明最终回复已通过 delta 流式输出，结束
-    若一直有工具调用直到触顶 → 用 stream_final 强制收尾，避免无限烧钱
+实现可迭代的多轮工具调用循环：模型每轮可发起工具调用，结果作为 tool 消息
+回灌上下文后再由模型决定下一步，直至模型不再调用工具或触达 max_iterations。
 
 关键设计（依赖注入）：循环本身不 import 任何 LLM 实现，stream_with_tools /
 stream_final 由调用方注入（api.py 注入 router 的 reason_stream_with_tools /
 reason_stream）。这样循环可脱离真实模型单测（注入假函数即可），也方便测试 monkeypatch。
 
-本文件还集中承载几个「扛真实世界」的能力（对照 OpenCode 维度）：
-- 可靠性：stream_with 外包一层重试（指数退避），网络抖一下不致命。
+本文件还集中承载可靠性相关的几个维度：
+- 可靠性：stream_with 外包一层重试（指数退避），网络抖动不致命。
 - 成本控制：每轮 LLM 调用前估算输入 token，超 budget_tokens 则强制收尾；
-  累计 total_input_tokens，供上层打印近似成本（烧钱可见）。
+  累计 total_input_tokens，供上层估算近似成本。
 - 上下文工程：回灌给模型的 tool 结果做字符截断，避免多轮把上下文撑爆。
-- 可观测：debug 开启时每轮 logger.debug 打印消息数/输入 token/工具数
-  （对应 OpenCode 的 debug 日志 + 消息落盘）。
+- 可观测：debug 开启时每轮 logger.debug 打印消息数/输入 token/工具数。
 """
 import asyncio
 import logging
@@ -82,7 +74,7 @@ class AgentLoop:
                 )
             if self.budget_tokens and input_tokens > self.budget_tokens:
                 logger.warning(
-                    "Agent 触达 token 预算(%d)，强制收尾避免烧钱 rid=%s",
+                    "Agent 触达 token 预算(%d)，强制收尾以约束成本 rid=%s",
                     self.budget_tokens, rid,
                 )
                 async for chunk in self._stream_final_with_retry(history, rid):
