@@ -29,7 +29,19 @@ def _normalize_db_url(url: str) -> str:
 
 
 _DATABASE_URL = _normalize_db_url(settings.database_url)
-engine = create_async_engine(_DATABASE_URL, echo=False, future=True)
+
+# 托管 Postgres（Supabase / Neon 等）通常强制 SSL；asyncpg 默认不启用，
+# 不显式开启会在 TLS 握手阶段报错。仅对 Postgres dialect 生效，SQLite 忽略。
+_connect_args: dict = {}
+if _DATABASE_URL.startswith("postgresql"):
+    _connect_args["ssl"] = True
+
+engine = create_async_engine(
+    _DATABASE_URL,
+    echo=False,
+    future=True,
+    connect_args=_connect_args,
+)
 
 # SQLite 本地/测试模式：开启 WAL + busy_timeout + synchronous=NORMAL，
 # 提升并发写入稳定性（压测反馈的高并发写锁问题）。Postgres 不受影响。
